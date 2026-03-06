@@ -206,24 +206,12 @@ struct TopographicPlaceXml {
     country_ref: Option<RefAttr>,
     #[serde(rename = "ParentTopographicPlaceRef")]
     parent_ref: Option<RefAttr>,
-    #[serde(rename = "Centroid")]
-    centroid: Option<CentroidXml>,
-    #[serde(rename = "ValidBetween")]
-    valid_between: Option<ValidBetweenXml>,
 }
 
 #[derive(Debug, Deserialize)]
 struct DescriptorXml {
     #[serde(rename = "Name")]
     name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ValidBetweenXml {
-    #[serde(rename = "FromDate")]
-    from_date: Option<String>,
-    #[serde(rename = "ToDate")]
-    to_date: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -273,19 +261,17 @@ fn parse_netex(xml: &str) -> Result<ParseResult, Box<dyn std::error::Error>> {
                     }
                     "TopographicPlace" => {
                         let text = read_element_as_string(&mut reader, "TopographicPlace", e)?;
-                        if let Ok(tp) = from_str::<TopographicPlaceXml>(&text) {
-                            if let Some(id) = &tp.id {
+                        if let Ok(tp) = from_str::<TopographicPlaceXml>(&text)
+                            && let Some(id) = &tp.id {
                                 topo_places.insert(id.clone(), tp);
                             }
-                        }
                     }
                     "FareZone" => {
                         let text = read_element_as_string(&mut reader, "FareZone", e)?;
-                        if let Ok(fz) = from_str::<FareZoneXml>(&text) {
-                            if let Some(id) = &fz.id {
+                        if let Ok(fz) = from_str::<FareZoneXml>(&text)
+                            && let Some(id) = &fz.id {
                                 fare_zones.insert(id.clone(), fz);
                             }
-                        }
                     }
                     _ => {}
                 }
@@ -402,11 +388,10 @@ fn calculate_stop_popularity(
     if sum > 0.0 {
         pop = (pop as f64 * sum) as i64;
     }
-    if let Some(w) = &sp.weighting {
-        if let Some(factor) = config.interchange_factors.get(w) {
+    if let Some(w) = &sp.weighting
+        && let Some(factor) = config.interchange_factors.get(w) {
             pop = (pop as f64 * factor) as i64;
         }
-    }
     pop
 }
 
@@ -415,6 +400,7 @@ fn calculate_stop_popularity(
 #[derive(Debug, PartialEq)]
 enum StopPlaceRole { Child, Parent, Standalone }
 
+#[allow(clippy::too_many_arguments)]
 fn convert_stop_place(
     config: &Config,
     importance_calc: &ImportanceCalculator,
@@ -442,7 +428,7 @@ fn convert_stop_place(
     });
     let country = determine_country(topo_places, sp, &coord);
     let child_types = stop_place_types.get(&sp.id).cloned().unwrap_or_default();
-    let importance = importance_calc.calculate_importance(popularity as f64);
+    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(popularity as f64));
 
     let role = if !child_types.is_empty() {
         StopPlaceRole::Parent
@@ -496,30 +482,26 @@ fn convert_stop_place(
         // Pass 2: tariff zone authorities (deduplicated)
         let mut seen_tz_auth = std::collections::HashSet::new();
         for tz_ref in &tz.refs {
-            if let Some(ref_) = &tz_ref.ref_ {
-                if ref_.contains(":TariffZone:") {
-                    if let Some(auth) = ref_.split(':').next() {
+            if let Some(ref_) = &tz_ref.ref_
+                && ref_.contains(":TariffZone:")
+                    && let Some(auth) = ref_.split(':').next() {
                         let cat = format!("{TARIFF_ZONE_AUTH_PREFIX}{auth}");
                         if seen_tz_auth.insert(cat.clone()) {
                             indexed_cats.push(cat);
                         }
                     }
-                }
-            }
         }
         // Pass 3: fare zone authorities (deduplicated)
         let mut seen_fz_auth = std::collections::HashSet::new();
         for tz_ref in &tz.refs {
-            if let Some(ref_) = &tz_ref.ref_ {
-                if let Some(fz) = fare_zones.get(ref_.as_str()) {
-                    if let Some(auth_ref) = fz.authority_ref.as_ref().map(|a| a.ref_.as_str()) {
+            if let Some(ref_) = &tz_ref.ref_
+                && let Some(fz) = fare_zones.get(ref_.as_str())
+                    && let Some(auth_ref) = fz.authority_ref.as_ref().map(|a| a.ref_.as_str()) {
                         let cat = fare_zone_authority_category(auth_ref);
                         if seen_fz_auth.insert(cat.clone()) {
                             indexed_cats.push(cat);
                         }
                     }
-                }
-            }
         }
     }
     indexed_cats.push(format!("{COUNTRY_PREFIX}{}", country.name));
@@ -615,10 +597,10 @@ fn convert_gosp(
 
     if let Some(members) = &gosp.members {
         for sp_ref in &members.refs {
-            if let Some(sp) = stop_places.iter().find(|s| s.id == sp_ref.ref_) {
-                if let Some(topo_ref) = sp.topographic_place_ref.as_ref() {
-                    if let Some(tp) = topo_places.get(&topo_ref.ref_) {
-                        if tp.topographic_place_type.as_deref() == Some("municipality") {
+            if let Some(sp) = stop_places.iter().find(|s| s.id == sp_ref.ref_)
+                && let Some(topo_ref) = sp.topographic_place_ref.as_ref()
+                    && let Some(tp) = topo_places.get(&topo_ref.ref_)
+                        && tp.topographic_place_type.as_deref() == Some("municipality") {
                             locality_gid = Some(topo_ref.ref_.clone());
                             locality = tp.descriptor.as_ref().and_then(|d| d.name.clone());
                             county_gid = tp.parent_ref.as_ref().map(|r| r.ref_.clone());
@@ -627,9 +609,6 @@ fn convert_gosp(
                             });
                             break;
                         }
-                    }
-                }
-            }
         }
     }
 
@@ -641,7 +620,7 @@ fn convert_gosp(
     } else {
         config.group_of_stop_places.gos_boost_factor * member_pops.iter().fold(1.0, |acc, &p| acc * p as f64)
     };
-    let importance = importance_calc.calculate_importance(gos_pop);
+    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(gos_pop));
     let country = geo::get_country(&coord).unwrap_or_else(Country::no);
 
     let visible_cats = vec![
@@ -699,15 +678,12 @@ fn determine_country(
     sp: &StopPlaceXml,
     coord: &Coordinate,
 ) -> Country {
-    if let Some(topo_ref) = sp.topographic_place_ref.as_ref() {
-        if let Some(tp) = topo_places.get(&topo_ref.ref_) {
-            if let Some(cr) = &tp.country_ref {
-                if let Some(c) = Country::parse(Some(&cr.ref_)) {
+    if let Some(topo_ref) = sp.topographic_place_ref.as_ref()
+        && let Some(tp) = topo_places.get(&topo_ref.ref_)
+            && let Some(cr) = &tp.country_ref
+                && let Some(c) = Country::parse(Some(&cr.ref_)) {
                     return c;
                 }
-            }
-        }
-    }
     geo::get_country(coord).unwrap_or_else(Country::no)
 }
 

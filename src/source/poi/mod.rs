@@ -27,7 +27,7 @@ pub fn convert(
     let entries: Vec<NominatimPlace> = topo_places
         .into_iter()
         .filter(|tp| is_valid(tp, &now))
-        .filter_map(|tp| convert_topo_place(&config, &tp))
+        .filter_map(|tp| convert_topo_place(config, &tp))
         .collect();
 
     JsonWriter::export(&entries, output, is_appending)?;
@@ -102,10 +102,10 @@ fn parse_topographic_places(xml: &str) -> Result<Vec<TopographicPlaceXml>, Box<d
 
 fn is_valid(tp: &TopographicPlaceXml, now: &NaiveDateTime) -> bool {
     let Some(vb) = &tp.valid_between else { return true };
-    let from_ok = vb.from_date.as_ref().map_or(true, |d| {
+    let from_ok = vb.from_date.as_ref().is_none_or(|d| {
         NaiveDateTime::parse_from_str(d, "%Y-%m-%dT%H:%M:%S").map_or(true, |dt| *now >= dt)
     });
-    let to_ok = vb.to_date.as_ref().map_or(true, |d| {
+    let to_ok = vb.to_date.as_ref().is_none_or(|d| {
         NaiveDateTime::parse_from_str(d, "%Y-%m-%dT%H:%M:%S").map_or(true, |dt| *now <= dt)
     });
     from_ok && to_ok
@@ -134,7 +134,7 @@ fn convert_topo_place(config: &Config, tp: &TopographicPlaceXml) -> Option<Nomin
             object_id: nominatim_id,
             categories: indexed_cats,
             rank_address: config.poi.rank_address,
-            importance: config.poi.importance,
+            importance: RawNumber::from_f64(config.poi.importance),
             parent_place_id: None,
             name: Some(Name { name: Some(name.to_string()), name_en: None, alt_name: None }),
             address: Address::default(),

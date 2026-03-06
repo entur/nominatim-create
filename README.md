@@ -1,6 +1,6 @@
 # nominatim-convert
 
-A Rust CLI tool that converts Norwegian geographic data sources into Nominatim-compatible NDJSON. This is a port of the Kotlin converter from [entur/geocoder](https://github.com/entur/geocoder), producing byte-identical output.
+A Rust CLI tool that converts Norwegian geographic data sources into Nominatim-compatible NDJSON. This is a port of the Kotlin converter from [entur/geocoder](https://github.com/entur/geocoder), producing identical output.
 
 ## Data sources
 
@@ -97,7 +97,7 @@ src/
 │   ├── matrikkel/mod.rs     # Kartverket CSV parser + street aggregation
 │   ├── stedsnavn/mod.rs     # SSR GML parser
 │   ├── poi/mod.rs           # NeTEx POI XML parser
-│   └── osm/mod.rs           # OSM PBF parser (nodes, ways, relations)
+│   └── osm/mod.rs           # OSM PBF 4-pass parser (nodes, ways, relations)
 └── target/
     ├── json_writer.rs       # NDJSON output with header
     ├── nominatim_id.rs      # Deterministic place_id generation (Java hashCode compat)
@@ -110,28 +110,61 @@ src/
 
 ## Compatibility with the Kotlin converter
 
-This converter produces identical output to the Kotlin version:
+This converter produces identical output to the Kotlin version for all 5 data sources. Remaining differences are limited to last-digit coordinate rounding (0.000001° ≈ 0.1m) caused by different projection libraries (GeoTools/JTS in Kotlin vs proj4 in Rust).
 
+Key implementation details for Kotlin compatibility:
 - **place_id generation**: Uses Java `String.hashCode()` algorithm (wrapping i32 arithmetic with multiplier 31) for deterministic IDs
 - **Country detection**: Same `boundaries60x30.ser` file and `country-boundaries` crate (by the same author as the Java library)
 - **Float formatting**: 6 decimal places for importance, coordinates, and bounding boxes
-- **Category ordering**: Matches Kotlin's 3-pass tariff zone construction
+- **Category ordering**: Matches Kotlin's 3-pass tariff zone construction (StopPlace), BTreeMap for sorted tag keys (OSM)
 - **Alt name deduplication**: Preserves insertion order (like Java's LinkedHashSet)
+- **PBF file order**: OSM entities are processed in PBF file order via ordered ID vectors, matching Kotlin's Osmosis sequential reader
+- **CoordinateStore**: Open-addressing hash map with delta-encoded int coordinates at 1e5 scale (~1.1m precision), matching Kotlin's implementation
 
-Verified with full dataset comparisons:
-- StopPlace: 58,639 entries — 0 diffs
-- Matrikkel: 2,667,479 entries — 0 semantic diffs (coordinate rounding at 6th decimal due to different PROJ implementations)
-- Stedsnavn: 2,215 entries — 0 semantic diffs (same coordinate rounding)
+### Production verification
+
+Verified with full Norway production datasets:
+
+| Converter | Entries | Identical | Remaining Diffs |
+|-----------|---------|-----------|-----------------|
+| StopPlace (403MB XML) | 58,085 | 100% | 0 |
+| Stedsnavn (2.4GB GML) | 2,215 | 87% | 288 coord precision |
+| OSM (1.3GB PBF) | 37,001 | 98.9% | 346 coord + 63 street edge cases |
+| Matrikkel (775MB CSV + 2.4GB GML) | 2,659,069 | 89.3% | 285,481 coord precision |
+
+All diffs are last-digit coordinate rounding from different UTM33→WGS84 projection libraries.
 
 ## Performance
 
-Benchmarks on Apple Silicon (M-series), release build with LTO:
+Benchmarks on Apple Silicon (M-series), release build with LTO. Compared to the Kotlin converter (JVM 21):
 
-| Source | Entries | Time |
-|--------|---------|------|
-| StopPlace (150MB XML) | 58,639 | ~0.5s |
-| Matrikkel (800MB CSV + 2.6GB GML) | 2,667,479 | ~17s |
-| Stedsnavn (2.6GB GML) | 2,215 | ~12s |
+| Source | Entries | Rust | Kotlin | Speedup |
+|--------|---------|------|--------|---------|
+| StopPlace (403MB XML) | 58,085 | 1.2s | 6.5s | **5.4x** |
+| Stedsnavn (2.4GB GML) | 2,215 | 4.4s | 8.4s | **1.9x** |
+| OSM (1.3GB PBF) | 37,001 | 82s | 137s | **1.7x** |
+| Matrikkel (775MB CSV + 2.4GB GML) | 2,659,069 | 16s | 25s | **1.5x** |
+
+## Comparison tool
+
+`compare-ndjson.py` is a reusable tool for comparing Nominatim NDJSON files:
+
+```bash
+# Basic 2-file comparison
+python3 compare-ndjson.py kotlin.ndjson rust.ndjson
+
+# Inspect a specific entry
+python3 compare-ndjson.py kotlin.ndjson rust.ndjson --inspect 400123
+
+# Compare ordering patterns
+python3 compare-ndjson.py kotlin.ndjson rust.ndjson --order
+
+# Value distribution for differing entries
+python3 compare-ndjson.py kotlin.ndjson rust.ndjson --histogram extra.source
+
+# Focus on specific fields
+python3 compare-ndjson.py kotlin.ndjson rust.ndjson --field categories --subfield extra
+```
 
 ## License
 

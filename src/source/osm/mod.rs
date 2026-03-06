@@ -6,13 +6,15 @@
 //! 3. Nodes pass: Fetch node coordinates for all needed nodes
 //! 4. Ways+Relations pass: Build indexes, calculate centroids, and convert POIs
 
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use osmpbf::{Element, ElementReader};
 
 use crate::common::country::Country;
 use crate::common::extra::Extra;
+use crate::common::geo;
 use crate::common::importance::ImportanceCalculator;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
@@ -41,8 +43,6 @@ pub struct Coordinate {
 }
 
 impl Coordinate {
-    pub const ZERO: Coordinate = Coordinate { lat: 0.0, lon: 0.0 };
-
     pub fn centroid(&self) -> Vec<f64> {
         vec![round6(self.lon), round6(self.lat)]
     }
@@ -198,7 +198,6 @@ impl BoundingBox {
 // ---------------------------------------------------------------------------
 
 pub struct AdministrativeBoundary {
-    pub id: i64,
     pub name: String,
     pub admin_level: i32,
     pub ref_code: Option<String>,
@@ -239,7 +238,7 @@ impl AdministrativeBoundary {
     }
 
     pub fn is_in_bounding_box(&self, coord: &Coordinate) -> bool {
-        self.bbox.as_ref().map_or(false, |b| b.contains(coord))
+        self.bbox.as_ref().is_some_and(|b| b.contains(coord))
     }
 }
 
@@ -378,7 +377,6 @@ pub struct StreetSegment {
     pub name: String,
     pub start: Coordinate,
     pub end: Coordinate,
-    pub bbox: BoundingBox,
 }
 
 impl StreetSegment {
@@ -414,7 +412,6 @@ impl StreetSegment {
 const GRID_SIZE: f64 = 0.005;
 const MAX_SEARCH_RADIUS: i32 = 10;
 const MAX_DISTANCE_METERS: f64 = 100.0;
-const STREET_CACHE_PRECISION: f64 = 1000.0;
 
 pub const HIGHWAY_TYPES: &[&str] = &[
     "motorway",
@@ -433,15 +430,17 @@ pub const HIGHWAY_TYPES: &[&str] = &[
 pub struct StreetIndex {
     segments: Vec<StreetSegment>,
     spatial_index: HashMap<(i32, i32), Vec<usize>>,
-    lookup_cache: HashMap<(i32, i32), Option<String>>,
+    lookup_cache: RefCell<HashMap<(i32, i32), Option<String>>>,
 }
+
+const STREET_CACHE_PRECISION: f64 = 1000.0;
 
 impl StreetIndex {
     pub fn new() -> Self {
         Self {
             segments: Vec::new(),
             spatial_index: HashMap::new(),
-            lookup_cache: HashMap::new(),
+            lookup_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -453,25 +452,18 @@ impl StreetIndex {
         for i in 0..coordinates.len() - 1 {
             let start = coordinates[i];
             let end = coordinates[i + 1];
-            let bbox = BoundingBox {
-                min_lat: start.lat.min(end.lat),
-                max_lat: start.lat.max(end.lat),
-                min_lon: start.lon.min(end.lon),
-                max_lon: start.lon.max(end.lon),
-            };
             let segment = StreetSegment {
                 name: name.to_string(),
                 start,
                 end,
-                bbox,
             };
             let seg_idx = self.segments.len();
             self.segments.push(segment);
 
-            let min_lat_cell = (bbox.min_lat / GRID_SIZE) as i32;
-            let max_lat_cell = (bbox.max_lat / GRID_SIZE) as i32;
-            let min_lon_cell = (bbox.min_lon / GRID_SIZE) as i32;
-            let max_lon_cell = (bbox.max_lon / GRID_SIZE) as i32;
+            let min_lat_cell = (start.lat.min(end.lat) / GRID_SIZE) as i32;
+            let max_lat_cell = (start.lat.max(end.lat) / GRID_SIZE) as i32;
+            let min_lon_cell = (start.lon.min(end.lon) / GRID_SIZE) as i32;
+            let max_lon_cell = (start.lon.max(end.lon) / GRID_SIZE) as i32;
 
             for lat_cell in min_lat_cell..=max_lat_cell {
                 for lon_cell in min_lon_cell..=max_lon_cell {
@@ -484,19 +476,17 @@ impl StreetIndex {
         }
     }
 
-    /// Finds the nearest street name using expanding ring search.
-    pub fn find_nearest_street(&mut self, coord: &Coordinate) -> Option<String> {
+    /// Finds the nearest street name using expanding ring search, with caching.
+    pub fn find_nearest_street(&self, coord: &Coordinate) -> Option<String> {
         let cache_key = (
             (coord.lat * STREET_CACHE_PRECISION) as i32,
             (coord.lon * STREET_CACHE_PRECISION) as i32,
         );
-
-        if let Some(cached) = self.lookup_cache.get(&cache_key) {
+        if let Some(cached) = self.lookup_cache.borrow().get(&cache_key) {
             return cached.clone();
         }
-
         let result = self.find_nearest_street_uncached(coord);
-        self.lookup_cache.insert(cache_key, result.clone());
+        self.lookup_cache.borrow_mut().insert(cache_key, result.clone());
         result
     }
 
@@ -590,7 +580,7 @@ impl OsmPopularityCalculator {
     }
 
     /// Returns `default_value * highest_matching_priority`, or 0.0 if nothing matches.
-    pub fn calculate_popularity(&self, tags: &HashMap<&str, &str>) -> f64 {
+    pub fn calculate_popularity(&self, tags: &BTreeMap<&str, &str>) -> f64 {
         let highest = self
             .filters
             .iter()
@@ -630,53 +620,9 @@ fn calculate_centroid(coords: &[Coordinate]) -> Option<Coordinate> {
 // Utility helpers
 // ---------------------------------------------------------------------------
 
-fn titleize(s: &str) -> String {
-    s.split_whitespace()
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => {
-                    let lower = word.to_lowercase();
-                    let mut result = String::new();
-                    for (i, c) in lower.chars().enumerate() {
-                        if i == 0 {
-                            for u in first.to_uppercase() {
-                                result.push(u);
-                            }
-                            // Skip the lowercase first char since we already pushed uppercase
-                            continue;
-                        }
-                        result.push(c);
-                    }
-                    result
-                }
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
+use crate::common::util::titleize;
 
-/// OSM standard separator for multiple values within a single tag.
-const OSM_TAG_SEPARATOR: &str = ";";
-
-fn join_osm_values(values: &[&str]) -> Option<String> {
-    let filtered: Vec<&str> = values.iter().copied().filter(|s| !s.is_empty()).collect();
-    if filtered.is_empty() {
-        None
-    } else {
-        Some(filtered.join(OSM_TAG_SEPARATOR))
-    }
-}
-
-fn join_osm_values_owned(values: &[String]) -> Option<String> {
-    let filtered: Vec<&str> = values.iter().map(|s| s.as_str()).filter(|s| !s.is_empty()).collect();
-    if filtered.is_empty() {
-        None
-    } else {
-        Some(filtered.join(OSM_TAG_SEPARATOR))
-    }
-}
+use crate::common::text::join_osm_values;
 
 /// Extract a 2-letter country code from OSM admin relation tags.
 fn extract_country_code(tags: &HashMap<&str, &str>) -> Option<Country> {
@@ -695,11 +641,10 @@ fn extract_country_code(tags: &HashMap<&str, &str>) -> Option<Country> {
     }
 
     // If ref is all digits, assume Norway
-    if let Some(ref_val) = tags.get("ref") {
-        if ref_val.chars().all(|c| c.is_ascii_digit()) {
+    if let Some(ref_val) = tags.get("ref")
+        && ref_val.chars().all(|c| c.is_ascii_digit()) {
             return Some(Country::no());
         }
-    }
 
     None
 }
@@ -737,23 +682,15 @@ struct OsmEntityConverter<'a> {
     nodes_coords: &'a CoordinateStore,
     way_centroids: &'a CoordinateStore,
     admin_boundary_index: &'a mut AdministrativeBoundaryIndex,
-    street_index: &'a mut StreetIndex,
+    street_index: &'a StreetIndex,
     popularity_calculator: &'a OsmPopularityCalculator,
     importance_calc: ImportanceCalculator,
     config: &'a Config,
 }
 
 impl<'a> OsmEntityConverter<'a> {
-    /// Determine whether an entity might be a POI (has name + matching filter tag).
-    fn is_potential_poi(&self, tags: &HashMap<&str, &str>) -> bool {
-        tags.contains_key("name")
-            && tags
-                .iter()
-                .any(|(k, v)| self.popularity_calculator.has_filter(k, v))
-    }
-
-    /// Filter tags to only those matching configured filters.
-    fn filter_tags<'t>(&self, tags: &HashMap<&'t str, &'t str>) -> HashMap<&'t str, &'t str> {
+    /// Filter tags to only those matching configured filters (sorted by key for deterministic order).
+    fn filter_tags<'t>(&self, tags: &HashMap<&'t str, &'t str>) -> BTreeMap<&'t str, &'t str> {
         tags.iter()
             .filter(|(k, v)| self.popularity_calculator.has_filter(k, v))
             .map(|(&k, &v)| (k, v))
@@ -861,7 +798,7 @@ impl<'a> OsmEntityConverter<'a> {
     fn create_place_content(
         &mut self,
         entity_id: i64,
-        tags: &HashMap<&str, &str>,
+        tags: &BTreeMap<&str, &str>,
         name: &str,
         object_type: &str,
         accuracy: &str,
@@ -893,7 +830,7 @@ impl<'a> OsmEntityConverter<'a> {
         let alt_name_keys = ["alt_name", "old_name", "no:name", "loc_name", "short_name"];
         let visible_alt_names: Vec<String> = alt_name_keys
             .iter()
-            .filter_map(|&k| all_tags.get(k).copied())
+            .filter_map(|&k| tags.get(k).copied())
             .filter(|&v| !v.is_empty() && v != name)
             .map(|s| s.to_string())
             .collect();
@@ -901,7 +838,7 @@ impl<'a> OsmEntityConverter<'a> {
         let mut indexed_alt_names: Vec<String> = visible_alt_names.clone();
         indexed_alt_names.push(osm_id.clone());
 
-        let en_name = all_tags.get("en:name").copied().map(|s| s.to_string());
+        let en_name = tags.get("en:name").copied().map(|s| s.to_string());
 
         let county_gid = county
             .and_then(|c| c.ref_code.as_ref())
@@ -931,10 +868,8 @@ impl<'a> OsmEntityConverter<'a> {
             county_gid: county_gid.clone(),
             locality: locality.clone(),
             locality_gid: locality_gid.clone(),
-            tags: join_osm_values_owned(
-                &visible_categories.iter().map(|s| s.clone()).collect::<Vec<_>>(),
-            ),
-            alt_name: join_osm_values_owned(
+            tags: join_osm_values(&visible_categories),
+            alt_name: join_osm_values(
                 &visible_alt_names,
             ),
             ..Extra::default()
@@ -951,8 +886,6 @@ impl<'a> OsmEntityConverter<'a> {
         if let Some(ref gid) = locality_gid {
             indexed_categories.push(format!("{}{}", LOCALITY_ID_PREFIX, as_category(gid)));
         }
-        indexed_categories.push(as_category(&osm_id));
-
         let nominatim_id = NominatimId::Osm.create_from_i64(entity_id);
         let rank_address = self.determine_rank_address(tags);
         let importance = self.calculate_importance(tags);
@@ -968,7 +901,7 @@ impl<'a> OsmEntityConverter<'a> {
             name: Some(Name {
                 name: Some(name.to_string()),
                 name_en: en_name,
-                alt_name: join_osm_values_owned(&indexed_alt_names),
+                alt_name: join_osm_values(&indexed_alt_names),
             }),
             housenumber: None,
             address,
@@ -985,7 +918,7 @@ impl<'a> OsmEntityConverter<'a> {
         }
     }
 
-    fn determine_rank_address(&self, tags: &HashMap<&str, &str>) -> i32 {
+    fn determine_rank_address(&self, tags: &BTreeMap<&str, &str>) -> i32 {
         let ra = &self.config.osm.rank_address;
         if tags.contains_key("boundary") {
             ra.boundary
@@ -995,27 +928,22 @@ impl<'a> OsmEntityConverter<'a> {
             ra.road
         } else if tags.contains_key("building") {
             ra.building
-        } else if tags.contains_key("amenity")
-            || tags.contains_key("shop")
-            || tags.contains_key("tourism")
-        {
-            ra.poi
         } else {
             ra.poi
         }
     }
 
-    fn calculate_importance(&self, tags: &HashMap<&str, &str>) -> f64 {
+    fn calculate_importance(&self, tags: &BTreeMap<&str, &str>) -> RawNumber {
         let popularity = self.popularity_calculator.calculate_popularity(tags);
-        self.importance_calc.calculate_importance(popularity)
+        RawNumber::from_f64_6dp(self.importance_calc.calculate_importance(popularity))
     }
 }
 
-fn determine_country<'a>(
+fn determine_country(
     county: Option<&AdministrativeBoundary>,
     municipality: Option<&AdministrativeBoundary>,
     tags: &HashMap<&str, &str>,
-    _coord: &Coordinate,
+    coord: &Coordinate,
 ) -> Option<Country> {
     county
         .map(|c| c.country.clone())
@@ -1024,8 +952,10 @@ fn determine_country<'a>(
             tags.get("addr:country")
                 .and_then(|code| Country::parse(Some(code)))
         })
-    // Note: Geo.getCountry(coord) from the Kotlin version uses a country boundaries
-    // library. A simplified fallback could be added here if needed.
+        .or_else(|| {
+            let c = crate::common::coordinate::Coordinate::new(coord.lat, coord.lon);
+            geo::get_country(&c)
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,7 +963,6 @@ fn determine_country<'a>(
 // ---------------------------------------------------------------------------
 
 struct AdminRelationData {
-    id: i64,
     name: String,
     admin_level: i32,
     ref_code: String,
@@ -1042,18 +971,9 @@ struct AdminRelationData {
 }
 
 struct StreetWayData {
-    _way_id: i64,
     name: String,
     node_ids: Vec<i64>,
 }
-
-// ---------------------------------------------------------------------------
-// Member type tags in osmpbf relations
-// ---------------------------------------------------------------------------
-
-/// osmpbf relation member types
-const MEMBER_TYPE_NODE: i32 = 0;
-const MEMBER_TYPE_WAY: i32 = 1;
 
 // ---------------------------------------------------------------------------
 // OsmConverter – main 4-pass converter
@@ -1097,13 +1017,13 @@ impl OsmConverter {
             reader.for_each(|element| {
                 if let Element::Relation(relation) = element {
                     let tags: HashMap<&str, &str> =
-                        relation.tags().map(|(k, v)| (k, v)).collect();
+                        relation.tags().collect();
 
                     if tags.get("boundary") == Some(&"administrative") {
-                        if let Some(admin_level_str) = tags.get("admin_level") {
-                            if let Ok(admin_level) = admin_level_str.parse::<i32>() {
-                                if admin_level == ADMIN_LEVEL_COUNTY
-                                    || admin_level == ADMIN_LEVEL_MUNICIPALITY
+                        if let Some(admin_level_str) = tags.get("admin_level")
+                            && let Ok(admin_level) = admin_level_str.parse::<i32>()
+                                && (admin_level == ADMIN_LEVEL_COUNTY
+                                    || admin_level == ADMIN_LEVEL_MUNICIPALITY)
                                 {
                                     let name = tags.get("name").map(|s| s.to_string());
                                     let ref_code = tags.get("ref").map(|s| s.to_string());
@@ -1119,7 +1039,6 @@ impl OsmConverter {
                                             .collect();
 
                                         admin_relations.push(AdminRelationData {
-                                            id: relation.id(),
                                             name,
                                             admin_level,
                                             ref_code,
@@ -1128,8 +1047,6 @@ impl OsmConverter {
                                         });
                                     }
                                 }
-                            }
-                        }
 
                         // Collect node members from admin relations
                         for member in relation.members() {
@@ -1189,22 +1106,19 @@ impl OsmConverter {
             let reader = ElementReader::from_path(input)?;
             reader.for_each(|element| {
                 if let Element::Way(way) = element {
-                    let tags: HashMap<&str, &str> = way.tags().map(|(k, v)| (k, v)).collect();
+                    let tags: HashMap<&str, &str> = way.tags().collect();
                     let node_ids: Vec<i64> = way.refs().collect();
 
                     // Street way?
-                    if let Some(name) = tags.get("name") {
-                        if let Some(highway) = tags.get("highway") {
-                            if HIGHWAY_TYPES.contains(highway) {
+                    if let Some(name) = tags.get("name")
+                        && let Some(highway) = tags.get("highway")
+                            && HIGHWAY_TYPES.contains(highway) {
                                 street_ways.push(StreetWayData {
-                                    _way_id: way.id(),
                                     name: name.to_string(),
                                     node_ids: node_ids.clone(),
                                 });
                                 needed_node_ids.extend(&node_ids);
                             }
-                        }
-                    }
 
                     // Admin boundary way?
                     if admin_way_ids.contains(&way.id()) {
@@ -1309,25 +1223,42 @@ impl OsmConverter {
             // We need to collect way centroid data AND convert POIs in this pass.
             // PBF files are ordered: Nodes -> Ways -> Relations.
 
-            // First, collect way data we need.
+            // POI node data: coordinates and tags (order preserves PBF file order)
+            struct NodePoiData {
+                ids: Vec<i64>,
+                coords: HashMap<i64, Coordinate>,
+                tags: HashMap<i64, Vec<(String, String)>>,
+            }
+
+            let mut node_data = NodePoiData {
+                ids: Vec::new(),
+                coords: HashMap::new(),
+                tags: HashMap::new(),
+            };
+
+            // Way data: node IDs and tags (order preserves PBF file order)
             struct WayPassData {
+                ids: Vec<i64>,
                 way_node_ids: HashMap<i64, Vec<i64>>,
                 way_tags: HashMap<i64, Vec<(String, String)>>,
             }
 
             let mut way_data = WayPassData {
+                ids: Vec::new(),
                 way_node_ids: HashMap::new(),
                 way_tags: HashMap::new(),
             };
 
-            // We also need relation data
+            // Relation data (order preserves PBF file order)
             struct RelationPassData {
+                ids: Vec<i64>,
                 member_node_ids: HashMap<i64, Vec<i64>>,
                 member_way_ids: HashMap<i64, Vec<i64>>,
                 tags: HashMap<i64, Vec<(String, String)>>,
             }
 
             let mut rel_data = RelationPassData {
+                ids: Vec::new(),
                 member_node_ids: HashMap::new(),
                 member_way_ids: HashMap::new(),
                 tags: HashMap::new(),
@@ -1338,26 +1269,22 @@ impl OsmConverter {
                 match element {
                     Element::Node(node) => {
                         let tags: HashMap<&str, &str> =
-                            node.tags().map(|(k, v)| (k, v)).collect();
+                            node.tags().collect();
                         if tags.contains_key("name")
                             && tags
                                 .iter()
                                 .any(|(k, v)| popularity_calculator.has_filter(k, v))
                         {
-                            // Store as owned for later processing
                             let owned_tags: Vec<(String, String)> =
                                 node.tags().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-                            way_data.way_tags.insert(
-                                node.id(),
-                                owned_tags,
-                            );
-                            // Mark as node POI with a special sentinel in way_node_ids
-                            way_data.way_node_ids.insert(node.id(), vec![-1]); // sentinel
+                            node_data.ids.push(node.id());
+                            node_data.coords.insert(node.id(), Coordinate { lat: node.lat(), lon: node.lon() });
+                            node_data.tags.insert(node.id(), owned_tags);
                         }
                     }
                     Element::DenseNode(node) => {
                         let tags: HashMap<&str, &str> =
-                            node.tags().map(|(k, v)| (k, v)).collect();
+                            node.tags().collect();
                         if tags.contains_key("name")
                             && tags
                                 .iter()
@@ -1365,13 +1292,15 @@ impl OsmConverter {
                         {
                             let owned_tags: Vec<(String, String)> =
                                 node.tags().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-                            way_data.way_tags.insert(node.id, owned_tags);
-                            way_data.way_node_ids.insert(node.id, vec![-1]);
+                            node_data.ids.push(node.id);
+                            node_data.coords.insert(node.id, Coordinate { lat: node.lat(), lon: node.lon() });
+                            node_data.tags.insert(node.id, owned_tags);
                         }
                     }
                     Element::Way(way) => {
                         if all_needed_way_ids.contains(&way.id()) {
                             let node_ids: Vec<i64> = way.refs().collect();
+                            way_data.ids.push(way.id());
                             way_data.way_node_ids.insert(way.id(), node_ids);
                             let owned_tags: Vec<(String, String)> =
                                 way.tags().map(|(k, v)| (k.to_string(), v.to_string())).collect();
@@ -1380,7 +1309,7 @@ impl OsmConverter {
                     }
                     Element::Relation(relation) => {
                         let tags: HashMap<&str, &str> =
-                            relation.tags().map(|(k, v)| (k, v)).collect();
+                            relation.tags().collect();
                         if tags.contains_key("name")
                             && tags
                                 .iter()
@@ -1399,6 +1328,7 @@ impl OsmConverter {
                                     _ => {}
                                 }
                             }
+                            rel_data.ids.push(relation.id());
                             rel_data.member_node_ids.insert(relation.id(), member_nodes);
                             rel_data.member_way_ids.insert(relation.id(), member_ways);
                             let owned_tags: Vec<(String, String)> = relation
@@ -1411,17 +1341,16 @@ impl OsmConverter {
                 }
             })?;
 
-            // Calculate way centroids before creating the converter
-            for (&way_id, node_ids) in &way_data.way_node_ids {
-                if node_ids.len() == 1 && node_ids[0] == -1 {
-                    continue; // Skip node POI sentinels
-                }
-                let way_node_coords: Vec<Coordinate> = node_ids
-                    .iter()
-                    .filter_map(|&nid| nodes_coords.get(nid))
-                    .collect();
-                if let Some(centroid) = calculate_centroid(&way_node_coords) {
-                    way_centroids.put(way_id, centroid);
+            // Calculate way centroids (must be done before converting ways/relations)
+            for &way_id in &way_data.ids {
+                if let Some(node_ids) = way_data.way_node_ids.get(&way_id) {
+                    let way_node_coords: Vec<Coordinate> = node_ids
+                        .iter()
+                        .filter_map(|&nid| nodes_coords.get(nid))
+                        .collect();
+                    if let Some(centroid) = calculate_centroid(&way_node_coords) {
+                        way_centroids.put(way_id, centroid);
+                    }
                 }
             }
 
@@ -1430,67 +1359,66 @@ impl OsmConverter {
                 nodes_coords: &nodes_coords,
                 way_centroids: &way_centroids,
                 admin_boundary_index: &mut admin_boundary_index,
-                street_index: &mut street_index,
+                street_index: &street_index,
                 popularity_calculator: &popularity_calculator,
                 importance_calc,
                 config: &self.config,
             };
 
-            // Convert POI nodes
-            for (&node_id, node_ids) in &way_data.way_node_ids {
-                if !(node_ids.len() == 1 && node_ids[0] == -1) {
-                    continue; // Not a node POI
-                }
-                if let Some(owned_tags) = way_data.way_tags.get(&node_id) {
+            // Convert POI nodes in PBF file order
+            for &node_id in &node_data.ids {
+                if let (Some(&coord), Some(owned_tags)) =
+                    (node_data.coords.get(&node_id), node_data.tags.get(&node_id))
+                {
                     let tags: HashMap<&str, &str> = owned_tags
                         .iter()
                         .map(|(k, v)| (k.as_str(), v.as_str()))
                         .collect();
-                    // Need to get node coordinates
-                    if let Some(coord) = nodes_coords.get(node_id) {
-                        if let Some(place) =
-                            converter.convert_node(node_id, coord.lat, coord.lon, &tags)
-                        {
-                            results.push(place);
-                        }
-                    }
-                }
-            }
-
-            // Convert POI ways
-            for &way_id in &poi_way_ids {
-                if let Some(owned_tags) = way_data.way_tags.get(&way_id) {
-                    let tags: HashMap<&str, &str> = owned_tags
-                        .iter()
-                        .map(|(k, v)| (k.as_str(), v.as_str()))
-                        .collect();
-                    if let Some(place) = converter.convert_way(way_id, &tags) {
+                    if let Some(place) =
+                        converter.convert_node(node_id, coord.lat, coord.lon, &tags)
+                    {
                         results.push(place);
                     }
                 }
             }
 
-            // Convert POI relations
-            for (&rel_id, owned_tags) in &rel_data.tags {
-                let tags: HashMap<&str, &str> = owned_tags
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), v.as_str()))
-                    .collect();
-                let member_nodes = rel_data
-                    .member_node_ids
-                    .get(&rel_id)
-                    .map(|v| v.as_slice())
-                    .unwrap_or(&[]);
-                let member_ways = rel_data
-                    .member_way_ids
-                    .get(&rel_id)
-                    .map(|v| v.as_slice())
-                    .unwrap_or(&[]);
+            // Convert POI ways in PBF file order
+            for &way_id in &way_data.ids {
+                if poi_way_ids.contains(&way_id)
+                    && let Some(owned_tags) = way_data.way_tags.get(&way_id) {
+                        let tags: HashMap<&str, &str> = owned_tags
+                            .iter()
+                            .map(|(k, v)| (k.as_str(), v.as_str()))
+                            .collect();
+                        if let Some(place) = converter.convert_way(way_id, &tags) {
+                            results.push(place);
+                        }
+                    }
+            }
 
-                if let Some(place) =
-                    converter.convert_relation(rel_id, member_nodes, member_ways, &tags)
-                {
-                    results.push(place);
+            // Convert POI relations in PBF file order
+            for &rel_id in &rel_data.ids {
+                if let Some(owned_tags) = rel_data.tags.get(&rel_id) {
+                    let tags: HashMap<&str, &str> = owned_tags
+                        .iter()
+                        .map(|(k, v)| (k.as_str(), v.as_str()))
+                        .collect();
+                    let member_nodes = rel_data
+                        .member_node_ids
+                        .get(&rel_id)
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]);
+                    let member_ways = rel_data
+                        .member_way_ids
+                        .get(&rel_id)
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]);
+
+                    if let Some(place) =
+                        converter.convert_relation(rel_id, member_nodes, member_ways, &tags)
+                    {
+                        results.push(place);
+                    }
                 }
             }
         }
@@ -1538,7 +1466,6 @@ impl OsmConverter {
             let bbox = BoundingBox::from_coordinates(&all_node_coords);
 
             let boundary = AdministrativeBoundary {
-                id: relation.id,
                 name: relation.name.clone(),
                 admin_level: relation.admin_level,
                 ref_code: Some(relation.ref_code.clone()),
@@ -1556,7 +1483,6 @@ impl OsmConverter {
         nodes_coords: &CoordinateStore,
         index: &mut StreetIndex,
     ) {
-        let mut _added = 0;
         let mut skipped = 0;
 
         for street in street_ways {
@@ -1568,7 +1494,6 @@ impl OsmConverter {
 
             if coordinates.len() >= 2 {
                 index.add_street(&street.name, &coordinates);
-                _added += 1;
             } else {
                 skipped += 1;
             }
@@ -1635,7 +1560,6 @@ mod tests {
     fn test_ray_casting() {
         // Simple square polygon
         let boundary = AdministrativeBoundary {
-            id: 1,
             name: "Test".to_string(),
             admin_level: 4,
             ref_code: None,
@@ -1659,12 +1583,6 @@ mod tests {
             name: "Test Street".to_string(),
             start: Coordinate { lat: 60.0, lon: 10.0 },
             end: Coordinate { lat: 60.0, lon: 10.001 },
-            bbox: BoundingBox {
-                min_lat: 60.0,
-                max_lat: 60.0,
-                min_lon: 10.0,
-                max_lon: 10.001,
-            },
         };
 
         // Point on the line

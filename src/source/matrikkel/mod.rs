@@ -137,7 +137,7 @@ fn convert_address(
     let county_gid = fylkesnummer.as_ref().map(|f| format!("KVE:TopographicPlace:{f}"));
     let locality_gid = addr.kommunenummer.as_ref().map(|k| format!("KVE:TopographicPlace:{k}"));
 
-    let tags = vec![OSM_ADDRESS, "legacy.source.openaddresses", "legacy.layer.address", "legacy.category.vegadresse"];
+    let tags = [OSM_ADDRESS, "legacy.source.openaddresses", "legacy.layer.address", "legacy.category.vegadresse"];
     let id = &addr.lokalid;
 
     let id_cat = if id.chars().all(|c| c.is_ascii_digit()) {
@@ -162,7 +162,7 @@ fn convert_address(
     let fylkesnavn = addr.kommunenummer.as_ref()
         .and_then(|k| kommune_mapping.get(k).map(|i| titleize(&i.fylkesnavn)));
 
-    let importance = importance_calc.calculate_importance(config.matrikkel.address_popularity);
+    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.matrikkel.address_popularity));
     let place_id = NominatimId::Address.create(id);
 
     NominatimPlace {
@@ -221,7 +221,7 @@ fn convert_street(
     let county_gid = fylkesnummer.as_ref().map(|f| format!("KVE:TopographicPlace:{f}"));
     let locality_gid = addr.kommunenummer.as_ref().map(|k| format!("KVE:TopographicPlace:{k}"));
 
-    let tags = vec![OSM_STREET, "legacy.source.whosonfirst", "legacy.layer.address", "legacy.category.street"];
+    let tags = [OSM_STREET, "legacy.source.whosonfirst", "legacy.layer.address", "legacy.category.street"];
     let mut indexed_cats: Vec<String> = tags.iter().map(|s| s.to_string()).collect();
     indexed_cats.push(SOURCE_ADRESSE.to_string());
     indexed_cats.push(format!("{COUNTRY_PREFIX}{}", country.name));
@@ -236,7 +236,7 @@ fn convert_street(
     let fylkesnavn = addr.kommunenummer.as_ref()
         .and_then(|k| kommune_mapping.get(k).map(|i| titleize(&i.fylkesnavn)));
 
-    let importance = importance_calc.calculate_importance(config.matrikkel.street_popularity);
+    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.matrikkel.street_popularity));
     let place_id = NominatimId::Street.create(&addr.lokalid);
 
     NominatimPlace {
@@ -272,6 +272,8 @@ fn convert_street(
                 county_gid,
                 locality: addr.kommunenavn.as_ref().map(|n| titleize(n)),
                 locality_gid,
+                borough: addr.grunnkretsnavn.as_ref().map(|n| titleize(n)),
+                borough_gid: addr.grunnkretsnummer.as_ref().map(|n| format!("borough:{n}")),
                 tags: join_osm_values(&tags.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
                 alt_name: addr.adressetilleggsnavn.clone(),
                 ..Default::default()

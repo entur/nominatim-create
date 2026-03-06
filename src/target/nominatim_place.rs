@@ -1,21 +1,34 @@
 use crate::common::extra::Extra;
 use serde::{Serialize, Serializer};
 
-mod f64_6dp {
-    use serde::{Serialize, Serializer};
+/// A pre-formatted JSON number. Serializes as raw JSON (no quoting).
+#[derive(Debug)]
+pub struct RawNumber(pub String);
 
-    pub fn serialize<S: Serializer>(val: &f64, s: S) -> Result<S::Ok, S::Error> {
+impl RawNumber {
+    /// Format with exactly 6 decimal places (matches Kotlin's `.toBigDecimalWithScale(6)`).
+    pub fn from_f64_6dp(val: f64) -> Self {
+        Self(format!("{:.6}", val))
+    }
+
+    /// Use the default float representation (matches Kotlin's `.toBigDecimal()`).
+    pub fn from_f64(val: f64) -> Self {
+        Self(val.to_string())
+    }
+}
+
+impl Serialize for RawNumber {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::Error;
-        let formatted = format!("{:.6}", val);
         let raw: Box<serde_json::value::RawValue> =
-            serde_json::value::RawValue::from_string(formatted).map_err(S::Error::custom)?;
+            serde_json::value::RawValue::from_string(self.0.clone()).map_err(S::Error::custom)?;
         (*raw).serialize(s)
     }
 }
 
 mod vec_f64_6dp {
     use serde::ser::SerializeSeq;
-    use serde::{Serialize, Serializer};
+    use serde::Serializer;
 
     pub fn serialize<S: Serializer>(vals: &[f64], s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::Error;
@@ -44,8 +57,7 @@ pub struct PlaceContent {
     pub object_id: i64,
     pub categories: Vec<String>,
     pub rank_address: i32,
-    #[serde(serialize_with = "f64_6dp::serialize")]
-    pub importance: f64,
+    pub importance: RawNumber,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_place_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]

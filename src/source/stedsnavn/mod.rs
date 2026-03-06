@@ -168,21 +168,19 @@ fn parse_feature_member(reader: &mut Reader<&[u8]>) -> Result<Option<StedsnavnEn
 fn parse_pos_list(text: &str, coords: &mut Vec<(f64, f64)>) {
     let parts: Vec<&str> = text.split_whitespace().collect();
     for chunk in parts.chunks(2) {
-        if chunk.len() == 2 {
-            if let (Ok(east), Ok(north)) = (chunk[0].parse::<f64>(), chunk[1].parse::<f64>()) {
+        if chunk.len() == 2
+            && let (Ok(east), Ok(north)) = (chunk[0].parse::<f64>(), chunk[1].parse::<f64>()) {
                 coords.push((east, north));
             }
-        }
     }
 }
 
 fn parse_pos(text: &str, coords: &mut Vec<(f64, f64)>) {
     let parts: Vec<&str> = text.split_whitespace().collect();
-    if parts.len() >= 2 {
-        if let (Ok(east), Ok(north)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
+    if parts.len() >= 2
+        && let (Ok(east), Ok(north)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
             coords.push((east, north));
         }
-    }
 }
 
 fn convert_to_nominatim(entry: &StedsnavnEntry, config: &Config, importance_calc: &ImportanceCalculator) -> NominatimPlace {
@@ -218,7 +216,7 @@ fn convert_to_nominatim(entry: &StedsnavnEntry, config: &Config, importance_calc
     let mut indexed_alt = visible_alt.clone();
     indexed_alt.push(entry.lokal_id.clone());
 
-    let importance = importance_calc.calculate_importance(config.stedsnavn.default_value);
+    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.stedsnavn.default_value));
     let nominatim_id = NominatimId::Stedsnavn.create(&entry.lokal_id);
 
     NominatimPlace {
