@@ -160,3 +160,190 @@ pub fn cleanup_input(path: &Path, is_temp: bool) {
         std::fs::remove_file(path).ok();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_glob_match_wildcard_all() {
+        assert!(glob_match("*", "anything.txt"));
+        assert!(glob_match("*", ""));
+    }
+
+    #[test]
+    fn test_glob_match_suffix() {
+        assert!(glob_match("*.csv", "data.csv"));
+        assert!(glob_match("*.csv", "path/to/data.csv"));
+        assert!(!glob_match("*.csv", "data.xml"));
+        assert!(!glob_match("*.csv", "csv"));
+    }
+
+    #[test]
+    fn test_glob_match_prefix() {
+        assert!(glob_match("data*", "data.csv"));
+        assert!(glob_match("data*", "data_file.xml"));
+        assert!(!glob_match("data*", "other.csv"));
+    }
+
+    #[test]
+    fn test_glob_match_exact() {
+        assert!(glob_match("data.csv", "data.csv"));
+        assert!(!glob_match("data.csv", "other.csv"));
+    }
+
+    #[test]
+    fn test_make_temp_path_with_extension() {
+        let path = make_temp_path("csv");
+        assert!(path.to_string_lossy().ends_with(".csv"));
+        assert!(path.to_string_lossy().contains("nominatim-convert-"));
+    }
+
+    #[test]
+    fn test_make_temp_path_empty_extension() {
+        let path = make_temp_path("");
+        assert!(path.to_string_lossy().ends_with(".tmp"));
+    }
+
+    #[test]
+    fn test_make_temp_path_unique() {
+        let p1 = make_temp_path("txt");
+        let p2 = make_temp_path("txt");
+        assert_ne!(p1, p2);
+    }
+
+    #[test]
+    fn test_resolve_input_local_file() {
+        let path = Path::new("/some/local/file.csv");
+        let (resolved, is_temp) = resolve_input(path, Some("*.csv")).unwrap();
+        assert_eq!(resolved, path);
+        assert!(!is_temp);
+    }
+
+    #[test]
+    fn test_resolve_input_relative_path() {
+        let path = Path::new("relative/file.xml");
+        let (resolved, is_temp) = resolve_input(path, None).unwrap();
+        assert_eq!(resolved, path);
+        assert!(!is_temp);
+    }
+
+    #[test]
+    fn test_download_to_file() {
+        let data = b"hello world test data";
+        let reader = io::Cursor::new(data);
+        let path = make_temp_path("txt");
+
+        download_to_file(reader, &path, Some(data.len() as u64)).unwrap();
+
+        let contents = std::fs::read(&path).unwrap();
+        assert_eq!(contents, data);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_download_to_file_no_content_length() {
+        let data = b"some content";
+        let reader = io::Cursor::new(data);
+        let path = make_temp_path("txt");
+
+        download_to_file(reader, &path, None).unwrap();
+
+        let contents = std::fs::read(&path).unwrap();
+        assert_eq!(contents, data);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    fn create_test_zip(files: &[(&str, &[u8])]) -> PathBuf {
+        let path = make_temp_path("zip");
+        let file = File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        for (name, content) in files {
+            zip.start_file(*name, options).unwrap();
+            zip.write_all(content).unwrap();
+        }
+        zip.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn test_extract_from_zip_with_glob() {
+        let zip_path = create_test_zip(&[
+            ("readme.txt", b"ignore me"),
+            ("data.csv", b"col1,col2\na,b"),
+        ]);
+
+        let extracted = extract_from_zip(&zip_path, Some("*.csv")).unwrap();
+        let contents = std::fs::read_to_string(&extracted).unwrap();
+        assert_eq!(contents, "col1,col2\na,b");
+        assert!(extracted.to_string_lossy().ends_with(".csv"));
+
+        std::fs::remove_file(&zip_path).unwrap();
+        std::fs::remove_file(&extracted).unwrap();
+    }
+
+    #[test]
+    fn test_extract_from_zip_no_glob_picks_first_file() {
+        let zip_path = create_test_zip(&[
+            ("first.xml", b"<root/>"),
+            ("second.txt", b"text"),
+        ]);
+
+        let extracted = extract_from_zip(&zip_path, None).unwrap();
+        let contents = std::fs::read_to_string(&extracted).unwrap();
+        assert_eq!(contents, "<root/>");
+
+        std::fs::remove_file(&zip_path).unwrap();
+        std::fs::remove_file(&extracted).unwrap();
+    }
+
+    #[test]
+    fn test_extract_from_zip_no_match() {
+        let zip_path = create_test_zip(&[
+            ("data.xml", b"<root/>"),
+        ]);
+
+        let result = extract_from_zip(&zip_path, Some("*.csv"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No file matching"));
+
+        std::fs::remove_file(&zip_path).unwrap();
+    }
+
+    #[test]
+    fn test_extract_from_zip_skips_directories() {
+        let zip_path = create_test_zip(&[
+            ("subdir/data.gml", b"<gml/>"),
+        ]);
+
+        let extracted = extract_from_zip(&zip_path, Some("*.gml")).unwrap();
+        let contents = std::fs::read_to_string(&extracted).unwrap();
+        assert_eq!(contents, "<gml/>");
+
+        std::fs::remove_file(&zip_path).unwrap();
+        std::fs::remove_file(&extracted).unwrap();
+    }
+
+    #[test]
+    fn test_cleanup_input_temp_file() {
+        let path = make_temp_path("txt");
+        File::create(&path).unwrap();
+        assert!(path.exists());
+
+        cleanup_input(&path, true);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_cleanup_input_not_temp() {
+        let path = make_temp_path("txt");
+        File::create(&path).unwrap();
+        assert!(path.exists());
+
+        cleanup_input(&path, false);
+        assert!(path.exists());
+
+        std::fs::remove_file(&path).unwrap();
+    }
+}
