@@ -47,16 +47,19 @@ pub fn resolve_input(
 }
 
 fn make_temp_path(ext: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir();
     let id = std::process::id();
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     if ext.is_empty() {
-        dir.join(format!("nominatim-converter-{id}-{ts}.tmp"))
+        dir.join(format!("nominatim-converter-{id}-{ts}-{seq}.tmp"))
     } else {
-        dir.join(format!("nominatim-converter-{id}-{ts}.{ext}"))
+        dir.join(format!("nominatim-converter-{id}-{ts}-{seq}.{ext}"))
     }
 }
 
