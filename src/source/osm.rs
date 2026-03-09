@@ -1,10 +1,10 @@
 //! OSM PBF to Nominatim NDJSON converter.
 //!
-//! Converts OSM PBF files in 4 passes:
+//! Converts OSM PBF files in 4 passes (passes 1-3 use parallel blob decompression):
 //! 1. Relations pass: Collect admin boundaries and POI relation member way IDs
 //! 2. Ways pass: Collect all needed node IDs (streets, admin ways, POI ways, relation member ways)
 //! 3. Nodes pass: Fetch node coordinates for all needed nodes
-//! 4. Ways+Relations pass: Build indexes, calculate centroids, and convert POIs
+//! 4. Convert pass: Build indexes, calculate centroids, and convert POIs
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -130,9 +130,15 @@ impl CoordinateStore {
 
         for i in 0..old_ids.len() {
             if old_ids[i] != 0 {
-                let lat = BASE_LAT + old_lats[i] as f64 / COORD_SCALE;
-                let lon = BASE_LON + old_lons[i] as f64 / COORD_SCALE;
-                self.put(old_ids[i], Coordinate { lat, lon });
+                let id = old_ids[i];
+                let mut index = Self::hash(id, new_cap);
+                while self.ids[index] != 0 {
+                    index = (index + 1) % new_cap;
+                }
+                self.ids[index] = id;
+                self.delta_lats[index] = old_lats[i];
+                self.delta_lons[index] = old_lons[i];
+                self.size += 1;
             }
         }
     }
@@ -996,7 +1002,7 @@ impl OsmConverter {
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(input.exists(), "Input file does not exist: {:?}", input);
 
-        let mut nodes_coords = CoordinateStore::new(500_000);
+        let mut nodes_coords;
         let mut way_centroids = CoordinateStore::new(50_000);
         let mut admin_boundary_index = AdministrativeBoundaryIndex::new();
         let mut street_index = StreetIndex::new();
@@ -1007,75 +1013,99 @@ impl OsmConverter {
         // =================================================================
         eprintln!("Pass 1/4: Scanning relations for admin boundaries and POI relations...");
 
-        let mut admin_relations: Vec<AdminRelationData> = Vec::new();
-        let mut poi_relation_member_way_ids: HashSet<i64> = HashSet::new();
-        let mut poi_relation_node_ids: HashSet<i64> = HashSet::new();
-
-        {
-            let reader = ElementReader::from_path(input)?;
-            reader.for_each(|element| {
-                if let Element::Relation(relation) = element {
-                    let tags: HashMap<&str, &str> =
-                        relation.tags().collect();
-
-                    if tags.get("boundary") == Some(&"administrative") {
-                        if let Some(admin_level_str) = tags.get("admin_level")
-                            && let Ok(admin_level) = admin_level_str.parse::<i32>()
-                                && (admin_level == ADMIN_LEVEL_COUNTY
-                                    || admin_level == ADMIN_LEVEL_MUNICIPALITY)
-                                {
-                                    let name = tags.get("name").map(|s| s.to_string());
-                                    let ref_code = tags.get("ref").map(|s| s.to_string());
-                                    let country = extract_country_code(&tags);
-
-                                    if let (Some(name), Some(ref_code), Some(country)) =
-                                        (name, ref_code, country)
-                                    {
-                                        let way_ids: Vec<i64> = relation
-                                            .members()
-                                            .filter(|m| m.member_type == osmpbf::RelMemberType::Way)
-                                            .map(|m| m.member_id)
-                                            .collect();
-
-                                        admin_relations.push(AdminRelationData {
-                                            name,
-                                            admin_level,
-                                            ref_code,
-                                            way_ids,
-                                            country,
-                                        });
-                                    }
-                                }
-
-                        // Collect node members from admin relations
-                        for member in relation.members() {
-                            if member.member_type == osmpbf::RelMemberType::Node {
-                                poi_relation_node_ids.insert(member.member_id);
-                            }
-                        }
-                    }
-
-                    // Check for POI relation (has name and matching tags)
-                    if tags.contains_key("name")
-                        && tags
-                            .iter()
-                            .any(|(k, v)| popularity_calculator.has_filter(k, v))
-                    {
-                        for member in relation.members() {
-                            match member.member_type {
-                                osmpbf::RelMemberType::Way => {
-                                    poi_relation_member_way_ids.insert(member.member_id);
-                                }
-                                osmpbf::RelMemberType::Node => {
-                                    poi_relation_node_ids.insert(member.member_id);
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-            })?;
+        struct Pass1Result {
+            admin_relations: Vec<AdminRelationData>,
+            poi_relation_member_way_ids: HashSet<i64>,
+            poi_relation_node_ids: HashSet<i64>,
         }
+
+        let pass1 = {
+            let reader = ElementReader::from_path(input)?;
+            reader.par_map_reduce(
+                |element| {
+                    let mut result = Pass1Result {
+                        admin_relations: Vec::new(),
+                        poi_relation_member_way_ids: HashSet::new(),
+                        poi_relation_node_ids: HashSet::new(),
+                    };
+                    if let Element::Relation(relation) = element {
+                        let tags: HashMap<&str, &str> = relation.tags().collect();
+
+                        if tags.get("boundary") == Some(&"administrative") {
+                            if let Some(admin_level_str) = tags.get("admin_level")
+                                && let Ok(admin_level) = admin_level_str.parse::<i32>()
+                                    && (admin_level == ADMIN_LEVEL_COUNTY
+                                        || admin_level == ADMIN_LEVEL_MUNICIPALITY)
+                                    {
+                                        let name = tags.get("name").map(|s| s.to_string());
+                                        let ref_code = tags.get("ref").map(|s| s.to_string());
+                                        let country = extract_country_code(&tags);
+
+                                        if let (Some(name), Some(ref_code), Some(country)) =
+                                            (name, ref_code, country)
+                                        {
+                                            let way_ids: Vec<i64> = relation
+                                                .members()
+                                                .filter(|m| m.member_type == osmpbf::RelMemberType::Way)
+                                                .map(|m| m.member_id)
+                                                .collect();
+
+                                            result.admin_relations.push(AdminRelationData {
+                                                name,
+                                                admin_level,
+                                                ref_code,
+                                                way_ids,
+                                                country,
+                                            });
+                                        }
+                                    }
+
+                            // Collect node members from admin relations
+                            for member in relation.members() {
+                                if member.member_type == osmpbf::RelMemberType::Node {
+                                    result.poi_relation_node_ids.insert(member.member_id);
+                                }
+                            }
+                        }
+
+                        // Check for POI relation (has name and matching tags)
+                        if tags.contains_key("name")
+                            && tags
+                                .iter()
+                                .any(|(k, v)| popularity_calculator.has_filter(k, v))
+                        {
+                            for member in relation.members() {
+                                match member.member_type {
+                                    osmpbf::RelMemberType::Way => {
+                                        result.poi_relation_member_way_ids.insert(member.member_id);
+                                    }
+                                    osmpbf::RelMemberType::Node => {
+                                        result.poi_relation_node_ids.insert(member.member_id);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    result
+                },
+                || Pass1Result {
+                    admin_relations: Vec::new(),
+                    poi_relation_member_way_ids: HashSet::new(),
+                    poi_relation_node_ids: HashSet::new(),
+                },
+                |mut a, b| {
+                    a.admin_relations.extend(b.admin_relations);
+                    a.poi_relation_member_way_ids.extend(b.poi_relation_member_way_ids);
+                    a.poi_relation_node_ids.extend(b.poi_relation_node_ids);
+                    a
+                },
+            )?
+        };
+
+        let admin_relations = pass1.admin_relations;
+        let poi_relation_member_way_ids = pass1.poi_relation_member_way_ids;
+        let poi_relation_node_ids = pass1.poi_relation_node_ids;
 
         eprintln!(
             "  Found {} admin boundary relations",
@@ -1096,52 +1126,82 @@ impl OsmConverter {
             .flat_map(|r| r.way_ids.iter().copied())
             .collect();
 
-        let mut street_ways: Vec<StreetWayData> = Vec::new();
-        let mut needed_node_ids: HashSet<i64> = poi_relation_node_ids.clone();
-        let mut poi_way_ids: HashSet<i64> = HashSet::new();
-        let mut admin_way_node_ids: HashMap<i64, Vec<i64>> = HashMap::new();
-
-        {
-            let reader = ElementReader::from_path(input)?;
-            reader.for_each(|element| {
-                if let Element::Way(way) = element {
-                    let tags: HashMap<&str, &str> = way.tags().collect();
-                    let node_ids: Vec<i64> = way.refs().collect();
-
-                    // Street way?
-                    if let Some(name) = tags.get("name")
-                        && let Some(highway) = tags.get("highway")
-                            && HIGHWAY_TYPES.contains(highway) {
-                                street_ways.push(StreetWayData {
-                                    name: name.to_string(),
-                                    node_ids: node_ids.clone(),
-                                });
-                                needed_node_ids.extend(&node_ids);
-                            }
-
-                    // Admin boundary way?
-                    if admin_way_ids.contains(&way.id()) {
-                        admin_way_node_ids.insert(way.id(), node_ids.clone());
-                        needed_node_ids.extend(&node_ids);
-                    }
-
-                    // POI relation member way?
-                    if poi_relation_member_way_ids.contains(&way.id()) {
-                        needed_node_ids.extend(&node_ids);
-                    }
-
-                    // Direct POI way?
-                    if tags.contains_key("name")
-                        && tags
-                            .iter()
-                            .any(|(k, v)| popularity_calculator.has_filter(k, v))
-                    {
-                        poi_way_ids.insert(way.id());
-                        needed_node_ids.extend(&node_ids);
-                    }
-                }
-            })?;
+        struct Pass2Result {
+            street_ways: Vec<StreetWayData>,
+            needed_node_ids: HashSet<i64>,
+            poi_way_ids: HashSet<i64>,
+            admin_way_node_ids: HashMap<i64, Vec<i64>>,
         }
+
+        let pass2 = {
+            let reader = ElementReader::from_path(input)?;
+            reader.par_map_reduce(
+                |element| {
+                    let mut result = Pass2Result {
+                        street_ways: Vec::new(),
+                        needed_node_ids: HashSet::new(),
+                        poi_way_ids: HashSet::new(),
+                        admin_way_node_ids: HashMap::new(),
+                    };
+                    if let Element::Way(way) = element {
+                        let tags: HashMap<&str, &str> = way.tags().collect();
+                        let node_ids: Vec<i64> = way.refs().collect();
+
+                        // Street way?
+                        if let Some(name) = tags.get("name")
+                            && let Some(highway) = tags.get("highway")
+                                && HIGHWAY_TYPES.contains(highway) {
+                                    result.street_ways.push(StreetWayData {
+                                        name: name.to_string(),
+                                        node_ids: node_ids.clone(),
+                                    });
+                                    result.needed_node_ids.extend(&node_ids);
+                                }
+
+                        // Admin boundary way?
+                        if admin_way_ids.contains(&way.id()) {
+                            result.admin_way_node_ids.insert(way.id(), node_ids.clone());
+                            result.needed_node_ids.extend(&node_ids);
+                        }
+
+                        // POI relation member way?
+                        if poi_relation_member_way_ids.contains(&way.id()) {
+                            result.needed_node_ids.extend(&node_ids);
+                        }
+
+                        // Direct POI way?
+                        if tags.contains_key("name")
+                            && tags
+                                .iter()
+                                .any(|(k, v)| popularity_calculator.has_filter(k, v))
+                        {
+                            result.poi_way_ids.insert(way.id());
+                            result.needed_node_ids.extend(&node_ids);
+                        }
+                    }
+                    result
+                },
+                || Pass2Result {
+                    street_ways: Vec::new(),
+                    needed_node_ids: HashSet::new(),
+                    poi_way_ids: HashSet::new(),
+                    admin_way_node_ids: HashMap::new(),
+                },
+                |mut a, b| {
+                    a.street_ways.extend(b.street_ways);
+                    a.needed_node_ids.extend(b.needed_node_ids);
+                    a.poi_way_ids.extend(b.poi_way_ids);
+                    a.admin_way_node_ids.extend(b.admin_way_node_ids);
+                    a
+                },
+            )?
+        };
+
+        let street_ways = pass2.street_ways;
+        let mut needed_node_ids = pass2.needed_node_ids;
+        needed_node_ids.extend(&poi_relation_node_ids);
+        let poi_way_ids = pass2.poi_way_ids;
+        let admin_way_node_ids = pass2.admin_way_node_ids;
 
         eprintln!("  Found {} street ways", street_ways.len());
         eprintln!("  Found {} POI ways", poi_way_ids.len());
@@ -1155,35 +1215,35 @@ impl OsmConverter {
         // =================================================================
         eprintln!("Pass 3/4: Collecting node coordinates...");
 
+        // Pre-size based on known needed count to avoid repeated resizing
+        nodes_coords = CoordinateStore::new((needed_node_ids.len() as f64 / LOAD_FACTOR) as usize + 1);
+
         {
             let reader = ElementReader::from_path(input)?;
-            reader.for_each(|element| {
-                match element {
-                    Element::Node(node) => {
-                        if needed_node_ids.contains(&node.id()) {
-                            nodes_coords.put(
-                                node.id(),
-                                Coordinate {
-                                    lat: node.lat(),
-                                    lon: node.lon(),
-                                },
-                            );
+            let collected: Vec<(i64, Coordinate)> = reader.par_map_reduce(
+                |element| {
+                    let mut coords = Vec::new();
+                    match element {
+                        Element::Node(node) => {
+                            if needed_node_ids.contains(&node.id()) {
+                                coords.push((node.id(), Coordinate { lat: node.lat(), lon: node.lon() }));
+                            }
                         }
-                    }
-                    Element::DenseNode(node) => {
-                        if needed_node_ids.contains(&node.id) {
-                            nodes_coords.put(
-                                node.id,
-                                Coordinate {
-                                    lat: node.lat(),
-                                    lon: node.lon(),
-                                },
-                            );
+                        Element::DenseNode(node) => {
+                            if needed_node_ids.contains(&node.id) {
+                                coords.push((node.id, Coordinate { lat: node.lat(), lon: node.lon() }));
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
-                }
-            })?;
+                    coords
+                },
+                Vec::new,
+                |mut a, b| { a.extend(b); a },
+            )?;
+            for (id, coord) in collected {
+                nodes_coords.put(id, coord);
+            }
         }
 
         // =================================================================
@@ -1216,7 +1276,8 @@ impl OsmConverter {
             .copied()
             .collect();
 
-        let mut results: Vec<NominatimPlace> = Vec::new();
+        let mut writer = JsonWriter::open(output, is_appending)?;
+        let mut result_count: usize = 0;
 
         {
             // We need to collect way centroid data AND convert POIs in this pass.
@@ -1376,7 +1437,8 @@ impl OsmConverter {
                     if let Some(place) =
                         converter.convert_node(node_id, coord.lat, coord.lon, &tags)
                     {
-                        results.push(place);
+                        writer.write_entry(&place)?;
+                        result_count += 1;
                     }
                 }
             }
@@ -1390,7 +1452,8 @@ impl OsmConverter {
                             .map(|(k, v)| (k.as_str(), v.as_str()))
                             .collect();
                         if let Some(place) = converter.convert_way(way_id, &tags) {
-                            results.push(place);
+                            writer.write_entry(&place)?;
+                            result_count += 1;
                         }
                     }
             }
@@ -1416,16 +1479,14 @@ impl OsmConverter {
                     if let Some(place) =
                         converter.convert_relation(rel_id, member_nodes, member_ways, &tags)
                     {
-                        results.push(place);
+                        writer.write_entry(&place)?;
+                        result_count += 1;
                     }
                 }
             }
         }
 
-        eprintln!("Finished processing {} entities", results.len());
-
-        // Write output
-        JsonWriter::export(&results, output, is_appending)?;
+        eprintln!("Finished processing {} entities", result_count);
 
         Ok(())
     }

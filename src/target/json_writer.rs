@@ -4,14 +4,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-pub struct JsonWriter;
+pub struct JsonWriter {
+    writer: BufWriter<File>,
+}
 
 impl JsonWriter {
-    pub fn export(
-        entries: &[NominatimPlace],
-        output: &Path,
-        is_appending: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    /// Open a writer for the given output path, writing the header if needed.
+    pub fn open(output: &Path, is_appending: bool) -> Result<Self, Box<dyn std::error::Error>> {
         if let Some(parent) = output.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -41,10 +40,25 @@ impl JsonWriter {
             OpenOptions::new().create(true).append(true).open(output)?
         };
 
-        let mut writer = BufWriter::new(file);
+        Ok(Self { writer: BufWriter::new(file) })
+    }
+
+    /// Write a single entry to the output.
+    pub fn write_entry(&mut self, entry: &NominatimPlace) -> Result<(), Box<dyn std::error::Error>> {
+        serde_json::to_writer(&mut self.writer, entry)?;
+        writeln!(self.writer)?;
+        Ok(())
+    }
+
+    /// Batch export (convenience method used by non-OSM converters).
+    pub fn export(
+        entries: &[NominatimPlace],
+        output: &Path,
+        is_appending: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut writer = Self::open(output, is_appending)?;
         for entry in entries {
-            serde_json::to_writer(&mut writer, entry)?;
-            writeln!(writer)?;
+            writer.write_entry(entry)?;
         }
         Ok(())
     }
