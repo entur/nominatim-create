@@ -89,11 +89,11 @@ src/
 │   ├── translator.rs        # Name/type translations
 │   └── util.rs              # titleize, round6, etc.
 ├── source/
-│   ├── stopplace/mod.rs     # NeTEx StopPlace XML parser
-│   ├── matrikkel/mod.rs     # Kartverket CSV parser + street aggregation
-│   ├── stedsnavn/mod.rs     # SSR GML parser
-│   ├── poi/mod.rs           # NeTEx POI XML parser
-│   └── osm/mod.rs           # OSM PBF 4-pass parser (nodes, ways, relations)
+│   ├── stopplace.rs         # NeTEx StopPlace XML parser
+│   ├── matrikkel.rs         # Kartverket CSV parser + street aggregation
+│   ├── stedsnavn.rs         # SSR GML parser
+│   ├── poi.rs               # NeTEx POI XML parser
+│   └── osm.rs               # OSM PBF 4-pass parser (nodes, ways, relations)
 └── target/
     ├── json_writer.rs       # NDJSON output with header
     ├── nominatim_id.rs      # Deterministic place_id generation (Java hashCode compat)

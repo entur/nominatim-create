@@ -33,7 +33,7 @@ UTM33 (EPSG:25833) → WGS84 conversions use the Rust `proj` crate, which produc
 
 ### OSM converter specifics
 
-The OSM converter (`src/source/osm/mod.rs`) has several critical patterns for Kotlin compatibility:
+The OSM converter (`src/source/osm.rs`) has several critical patterns for Kotlin compatibility:
 
 - **PBF file order**: Entities must be processed in PBF file order, not HashMap iteration order. The pass 4 data structs use `ids: Vec<i64>` to preserve insertion order alongside `HashMap` lookups. Do not iterate over the HashMaps directly.
 - **BTreeMap for filtered tags**: `filter_tags()` returns `BTreeMap<&str, &str>` (sorted by key) to match Kotlin's `LinkedHashMap` ordering (which happens to be alphabetical for OSM tags). Using `HashMap` causes non-deterministic category ordering.
@@ -104,13 +104,14 @@ This converter produces `nominatim.ndjson` which is imported into the **Photon g
 
 ### Test coverage
 
-All source converters have unit tests (`cargo test --release` runs ~223 tests). Coverage by module:
+All source converters have unit tests (`cargo test --release` runs ~240 tests). Coverage by module:
 
 1. **stopplace** (38 tests): NeTEx parsing, popularity calculation (base × type factors × interchange), GroupOfStopPlaces boost (gosBoostFactor × product of member popularities), transport mode formatting (mode:submode, parent collecting children with dedup), alt name handling (label → visible, translation → indexed only), category generation (funicular included, bus excluded, multimodal.parent marker), tariff zone ordering, full conversion integration tests (coordinates, authority categories, county_gid/locality_gid)
 2. **stedsnavn** (22 tests): Target type recognition (by/bydel/tettsted/tettsteddel/tettbebyggelse), spelling status filtering (vedtatt/godkjent/privat/samlevedtak accepted), GML parsing with historisk alt spelling, diacritics preservation, field validation (source, accuracy, country_code, importance, rank_address), locality/county GID format, coordinate ranges, titleized names
 3. **matrikkel** (12 tests): CSV→NDJSON conversion, field validation (id, source, accuracy, country_a, locality, borough, housenumber with letter suffix), county population via stedsnavn GML, address + street entry generation, category correctness, coordinate validity, importance range, county GID in categories
 4. **poi** (7 tests): ValidBetween date filtering (valid/expired/future/always-valid/open-ended), coordinate and category correctness
-5. **osm** (47 tests): Popularity formula (base × max priority, highest priority wins, unmatched/empty → zero), filter_tags (keeps only configured filters, sorted BTreeMap keys, empty for no matches), rank_address determination (boundary > place > road > building > poi priority), convert_node integration (object_type, accuracy, source, categories from filtered tags, alt name extraction from filtered tags only, en:name, OSM ID in extra and indexed alt_names, coordinates, importance reflects priority), admin boundary integration (county_gid, locality_gid, titleized municipality name, county_gid in categories), extract_country_code (ISO3166-2, country_code tag, numeric ref → Norway), as_category colon replacement, plus low-level tests (CoordinateStore, BoundingBox, ray casting, street segment distance, centroid calculation, titleize)
+5. **integration** (17 tests, `tests/integration.rs`): Black-box binary tests via `std::process::Command`. CLI behavior (no args, missing input, output-exists-without-force), all subcommands produce valid NDJSON with correct headers/sources/fields, append mode doesn't duplicate headers, force flag overwrites, coordinate validity, matrikkel --no-county flag, matrikkel missing GML error, expired POI filtering, Norwegian diacritics
+6. **osm** (47 tests): Popularity formula (base × max priority, highest priority wins, unmatched/empty → zero), filter_tags (keeps only configured filters, sorted BTreeMap keys, empty for no matches), rank_address determination (boundary > place > road > building > poi priority), convert_node integration (object_type, accuracy, source, categories from filtered tags, alt name extraction from filtered tags only, en:name, OSM ID in extra and indexed alt_names, coordinates, importance reflects priority), admin boundary integration (county_gid, locality_gid, titleized municipality name, county_gid in categories), extract_country_code (ISO3166-2, country_code tag, numeric ref → Norway), as_category colon replacement, plus low-level tests (CoordinateStore, BoundingBox, ray casting, street segment distance, centroid calculation, titleize)
 
 ### Test data fixtures
 
@@ -125,7 +126,8 @@ All source converters have unit tests (`cargo test --release` runs ~223 tests). 
 - Each module uses a `test_config()` helper returning a full `Config` from inline JSON
 - `test_data_path(name)` resolves fixtures relative to `CARGO_MANIFEST_DIR`
 - Temp output files use unique suffixes per test to avoid parallel test conflicts
-- Integration tests call the module's `convert()` function end-to-end, then parse the NDJSON output
+- Integration tests (`tests/integration.rs`) run the binary as a black box via `std::process::Command`, testing all subcommands end-to-end
+- Module-level integration tests call the module's `convert()` function end-to-end, then parse the NDJSON output
 
 ## Common pitfalls
 
