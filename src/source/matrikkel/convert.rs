@@ -75,13 +75,9 @@ fn convert_address(
     let locality_gid = addr.kommunenummer.as_ref().map(|k| format!("KVE:TopographicPlace:{k}"));
 
     let tags = [OSM_ADDRESS, "legacy.source.openaddresses", "legacy.layer.address", "legacy.category.vegadresse"];
-    let id = &addr.lokalid;
+    let id = format!("KVE:PostalAddress:{}", addr.lokalid);
 
-    let id_cat = if id.chars().all(|c| c.is_ascii_digit()) {
-        format!("openaddresses.address.{id}")
-    } else {
-        as_category(id)
-    };
+    let id_cat = as_category(&id);
 
     let mut indexed_cats: Vec<String> = tags.iter().map(|s| s.to_string()).collect();
     indexed_cats.push(SOURCE_ADRESSE.to_string());
@@ -100,7 +96,7 @@ fn convert_address(
         .and_then(|k| kommune_mapping.get(k).map(|i| titleize(&i.fylkesnavn)));
 
     let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.matrikkel.address_popularity));
-    let place_id = NominatimId::Address.create(id);
+    let place_id = NominatimId::Address.create(&id);
 
     NominatimPlace {
         type_: "Place".to_string(),
@@ -244,12 +240,12 @@ mod tests {
         let lines = convert_and_read("basic", None);
         assert!(lines.len() > 1);
 
-        let target = find_place_line(&lines, "225678815").expect("Should find address 225678815");
+        let target = find_place_line(&lines, "KVE:PostalAddress:225678815").expect("Should find address 225678815");
         let place: serde_json::Value = serde_json::from_str(target).unwrap();
         let content = &place["content"][0];
         let extra = &content["extra"];
 
-        assert_eq!(extra["id"].as_str().unwrap(), "225678815");
+        assert_eq!(extra["id"].as_str().unwrap(), "KVE:PostalAddress:225678815");
         assert_eq!(extra["source"].as_str().unwrap(), "kartverket-matrikkelenadresse");
         assert_eq!(extra["accuracy"].as_str().unwrap(), "point");
         assert_eq!(extra["country_a"].as_str().unwrap(), "NOR");
@@ -277,7 +273,7 @@ mod tests {
         let gml = test_data_path("Basisdata_3420_Elverum_25833_Stedsnavn_GML.gml");
         let lines = convert_and_read("with_county", Some(&gml));
 
-        let target = find_place_line(&lines, "225678815").expect("Should find address 225678815");
+        let target = find_place_line(&lines, "KVE:PostalAddress:225678815").expect("Should find address 225678815");
         let place: serde_json::Value = serde_json::from_str(target).unwrap();
         let county = place["content"][0]["address"]["county"].as_str();
         assert_eq!(county, Some("Innlandet"), "County should be Innlandet for Elverum");
@@ -305,7 +301,7 @@ mod tests {
     #[test]
     fn address_entries_have_correct_categories() {
         let lines = convert_and_read("cats", None);
-        let target = find_place_line(&lines, "225678815").unwrap();
+        let target = find_place_line(&lines, "KVE:PostalAddress:225678815").unwrap();
         let place: serde_json::Value = serde_json::from_str(target).unwrap();
         let cats: Vec<String> = place["content"][0]["categories"].as_array().unwrap()
             .iter().map(|v| v.as_str().unwrap().to_string()).collect();
@@ -351,7 +347,7 @@ mod tests {
     #[test]
     fn addresses_with_letters_have_combined_housenumber() {
         let lines = convert_and_read("hn", None);
-        let target = find_place_line(&lines, "225678815").unwrap();
+        let target = find_place_line(&lines, "KVE:PostalAddress:225678815").unwrap();
         let place: serde_json::Value = serde_json::from_str(target).unwrap();
         assert_eq!(place["content"][0]["housenumber"].as_str().unwrap(), "1A");
     }

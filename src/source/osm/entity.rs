@@ -188,7 +188,7 @@ impl<'a> OsmEntityConverter<'a> {
             self.admin_boundary_index.find_county_and_municipality(&centroid);
 
         let country = determine_country(county, municipality, all_tags, &centroid);
-        let osm_id = format!("OSM:TopographicPlace:{}", entity_id);
+        let osm_id = format!("OSM:PointOfInterest:{}", entity_id);
 
         let visible_categories = build_visible_categories(tags);
         let (visible_alt_names, indexed_alt_names) = build_alt_names(tags, name, &osm_id);
@@ -724,7 +724,7 @@ mod tests {
 
         let tags = HashMap::from([("name", "Test"), ("amenity", "hospital")]);
         let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
-        assert_eq!(place.content[0].extra.id.as_deref(), Some("OSM:TopographicPlace:42"));
+        assert_eq!(place.content[0].extra.id.as_deref(), Some("OSM:PointOfInterest:42"));
     }
 
     #[test]
@@ -736,7 +736,7 @@ mod tests {
         let tags = HashMap::from([("name", "Test"), ("amenity", "hospital")]);
         let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
         let name_alt = place.content[0].name.as_ref().unwrap().alt_name.as_ref().unwrap();
-        assert!(name_alt.contains("OSM:TopographicPlace:42"));
+        assert!(name_alt.contains("OSM:PointOfInterest:42"));
     }
 
     #[test]
