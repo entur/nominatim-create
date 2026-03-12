@@ -23,7 +23,8 @@ impl NominatimId {
     }
 
     pub fn create(self, id: &str) -> i64 {
-        let num = match id.parse::<i64>() {
+        let tail = id.rsplit(':').next().unwrap_or(id);
+        let num = match tail.parse::<i64>() {
             Ok(n) => n.unsigned_abs() as i64,
             Err(_) => java_string_hashcode(id).unsigned_abs() as i64,
         };
@@ -64,7 +65,7 @@ mod tests {
     #[test]
     fn test_gosp_known_id() {
         let id = NominatimId::Gosp.create("NSR:GroupOfStopPlaces:1");
-        assert_eq!(id, 4501627834738);
+        assert_eq!(id, 4501);
     }
 
     #[test]
@@ -91,14 +92,16 @@ mod tests {
     }
 
     #[test]
-    fn test_hashcode_for_non_numeric() {
-        // Non-numeric strings use Java hashCode
-        let id1 = NominatimId::StopPlace.create("NSR:StopPlace:1");
-        let id2 = NominatimId::StopPlace.create("NSR:StopPlace:2");
-        assert_ne!(id1, id2);
-        // Both should start with prefix 400
-        assert!(id1.to_string().starts_with("400"));
-        assert!(id2.to_string().starts_with("400"));
+    fn test_colon_separated_ids_use_numeric_tail() {
+        // Structured IDs like KVE:PostalAddress:123 should extract the numeric tail
+        assert_eq!(NominatimId::Address.create("KVE:PostalAddress:123"), 100123);
+        assert_eq!(NominatimId::StopPlace.create("NSR:StopPlace:1"), 4001);
+        assert_eq!(NominatimId::StopPlace.create("NSR:StopPlace:2"), 4002);
+        // No collision between different numeric tails
+        assert_ne!(
+            NominatimId::Address.create("KVE:PostalAddress:41209458"),
+            NominatimId::Address.create("KVE:PostalAddress:41209459"),
+        );
     }
 
     #[test]
