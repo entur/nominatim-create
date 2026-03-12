@@ -67,7 +67,7 @@ NDJSON (newline-delimited JSON). First line is a header:
 Subsequent lines are place entries:
 
 ```json
-{"type":"Place","content":[{"place_id":400123,"object_type":"N","categories":[...],...}]}
+{"type":"Place","content":[{"place_id":"KVE-PostalAddress-225678815","object_type":"N","categories":[...],...}]}
 ```
 
 All floating-point values are serialized with exactly 6 decimal places to match the Kotlin output.
@@ -96,7 +96,7 @@ src/
 │   └── osm/                 # OSM PBF 4-pass (passes, entity, admin, street, ...)
 └── target/
     ├── json_writer.rs       # NDJSON output with header
-    ├── nominatim_id.rs      # Deterministic place_id generation (Java hashCode compat)
+    ├── nominatim_id.rs      # Structured ID → Photon place_id sanitization
     └── nominatim_place.rs   # Nominatim NDJSON schema (serde)
 ```
 
@@ -106,10 +106,14 @@ src/
 
 ## Compatibility with the Kotlin converter
 
-This converter produces identical output to the Kotlin version for all 5 data sources. Remaining differences are limited to last-digit coordinate rounding (0.000001° ≈ 0.1m) caused by different projection libraries (GeoTools/JTS in Kotlin vs proj4 in Rust).
+This converter originally produced identical output to the Kotlin version. It has since diverged with the adoption of structured IDs.
 
-Key implementation details for Kotlin compatibility:
-- **place_id generation**: Uses Java `String.hashCode()` algorithm (wrapping i32 arithmetic with multiplier 31) for deterministic IDs
+Key differences from the Kotlin converter:
+- **place_id**: Now a string using Transmodel-style structured IDs (e.g. `KVE-PostalAddress-225678815`, `NSR-StopPlace-59977`, `OSM-PointOfInterest-12345`), replacing the old numeric Java `hashCode`-based IDs
+- **object_id**: Set to 0 for all entries (vestigial field)
+- **Coordinate rounding**: Last-digit differences (0.000001° ≈ 0.1m) from different projection libraries (GeoTools/JTS in Kotlin vs proj4 in Rust)
+
+Implementation details carried over from the Kotlin converter:
 - **Country detection**: Same `boundaries60x30.ser` file and `country-boundaries` crate (by the same author as the Java library)
 - **Float formatting**: 6 decimal places for importance, coordinates, and bounding boxes
 - **Category ordering**: Matches Kotlin's 3-pass tariff zone construction (StopPlace), BTreeMap for sorted tag keys (OSM)
@@ -150,7 +154,7 @@ Benchmarks on Apple Silicon (M-series), release build with LTO. Compared to the 
 ./compare-ndjson.py kotlin.ndjson rust.ndjson
 
 # Inspect a specific entry
-./compare-ndjson.py kotlin.ndjson rust.ndjson --inspect 400123
+./compare-ndjson.py kotlin.ndjson rust.ndjson --inspect KVE-PostalAddress-225678815
 
 # Compare ordering patterns
 ./compare-ndjson.py kotlin.ndjson rust.ndjson --order

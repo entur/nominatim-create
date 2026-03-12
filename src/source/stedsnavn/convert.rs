@@ -8,7 +8,7 @@ use crate::common::text::join_osm_values;
 use crate::common::util::titleize;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
-use crate::target::nominatim_id::NominatimId;
+use crate::target::nominatim_id::as_place_id;
 use crate::target::nominatim_place::*;
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -84,14 +84,12 @@ pub(crate) fn convert_to_nominatim(entry: &StedsnavnEntry, config: &Config, impo
     indexed_alt.push(entry.lokal_id.clone());
 
     let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.stedsnavn.default_value));
-    let nominatim_id = NominatimId::Stedsnavn.create(&entry.lokal_id);
-
     NominatimPlace {
         type_: "Place".to_string(),
         content: vec![PlaceContent {
-            place_id: nominatim_id,
+            place_id: as_place_id(&entry.lokal_id),
             object_type: "N".to_string(),
-            object_id: nominatim_id,
+            object_id: 0,
             categories: indexed_cats,
             rank_address: config.stedsnavn.rank_address,
             importance,

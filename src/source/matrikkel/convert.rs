@@ -7,7 +7,7 @@ use crate::common::text::join_osm_values;
 use crate::common::util::titleize;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
-use crate::target::nominatim_id::NominatimId;
+use crate::target::nominatim_id::as_place_id;
 use crate::target::nominatim_place::*;
 use std::collections::HashMap;
 use std::path::Path;
@@ -96,14 +96,13 @@ fn convert_address(
         .and_then(|k| kommune_mapping.get(k).map(|i| titleize(&i.fylkesnavn)));
 
     let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.matrikkel.address_popularity));
-    let place_id = NominatimId::Address.create(&id);
 
     NominatimPlace {
         type_: "Place".to_string(),
         content: vec![PlaceContent {
-            place_id,
+            place_id: as_place_id(&id),
             object_type: "N".to_string(),
-            object_id: place_id,
+            object_id: 0,
             categories: indexed_cats,
             rank_address: config.matrikkel.rank_address,
             importance,
@@ -170,14 +169,13 @@ fn convert_street(
         .and_then(|k| kommune_mapping.get(k).map(|i| titleize(&i.fylkesnavn)));
 
     let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.matrikkel.street_popularity));
-    let place_id = NominatimId::Street.create(&addr.lokalid);
 
     NominatimPlace {
         type_: "Place".to_string(),
         content: vec![PlaceContent {
-            place_id,
+            place_id: as_place_id(&id),
             object_type: "N".to_string(),
-            object_id: place_id,
+            object_id: 0,
             categories: indexed_cats,
             rank_address: config.matrikkel.rank_address,
             importance,

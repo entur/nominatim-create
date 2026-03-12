@@ -5,7 +5,7 @@ use crate::common::extra::Extra;
 use crate::common::geo;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
-use crate::target::nominatim_id::NominatimId;
+use crate::target::nominatim_id::as_place_id;
 use crate::target::nominatim_place::*;
 use chrono::{Local, NaiveDateTime};
 use std::path::Path;
@@ -57,13 +57,12 @@ fn convert_topo_place(config: &Config, tp: &TopographicPlaceXml) -> Option<Nomin
         as_category(id),
     ];
 
-    let nominatim_id = NominatimId::Poi.create(id);
     Some(NominatimPlace {
         type_: "Place".to_string(),
         content: vec![PlaceContent {
-            place_id: nominatim_id,
+            place_id: as_place_id(id),
             object_type: "N".to_string(),
-            object_id: nominatim_id,
+            object_id: 0,
             categories: indexed_cats,
             rank_address: config.poi.rank_address,
             importance: RawNumber::from_f64(config.poi.importance),

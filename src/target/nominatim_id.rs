@@ -1,48 +1,18 @@
-#[derive(Debug, Clone, Copy)]
-pub enum NominatimId {
-    Address,
-    Street,
-    Stedsnavn,
-    StopPlace,
-    Gosp,
-    Osm,
-    Poi,
-}
-
-impl NominatimId {
-    fn prefix(self) -> i64 {
-        match self {
-            NominatimId::Address => 100,
-            NominatimId::Street => 200,
-            NominatimId::Stedsnavn => 300,
-            NominatimId::StopPlace => 400,
-            NominatimId::Gosp => 450,
-            NominatimId::Osm => 500,
-            NominatimId::Poi => 600,
-        }
-    }
-
-    pub fn create(self, id: &str) -> i64 {
-        let tail = id.rsplit(':').next().unwrap_or(id);
-        let num = match tail.parse::<i64>() {
-            Ok(n) => n.unsigned_abs() as i64,
-            Err(_) => java_string_hashcode(id).unsigned_abs() as i64,
-        };
-        format!("{}{}", self.prefix(), num).parse::<i64>().unwrap_or(self.prefix())
-    }
-
-    pub fn create_from_i64(self, id: i64) -> i64 {
-        self.create(&id.to_string())
-    }
-}
-
-/// Matches Java/Kotlin `String.hashCode()`: s[0]*31^(n-1) + s[1]*31^(n-2) + ... + s[n-1]
-fn java_string_hashcode(s: &str) -> i64 {
-    let mut h: i32 = 0;
-    for b in s.bytes() {
-        h = h.wrapping_mul(31).wrapping_add(b as i32);
-    }
-    h as i64
+/// Convert a structured ID like `KVE:PostalAddress:123` into a place_id string.
+///
+/// Photon accepts `[0-9a-zA-Z_-]{1,60}` for place_id, so any characters outside
+/// that set are replaced with underscores. The result is truncated to 60 characters.
+pub fn as_place_id(id: &str) -> String {
+    let sanitized: String = id
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => c,
+            ':' => '-',
+            _ => '_',
+        })
+        .take(60)
+        .collect();
+    sanitized
 }
 
 #[cfg(test)]
@@ -50,73 +20,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_java_hashcode() {
-        // Known Java hashCode values
-        assert_eq!(java_string_hashcode(""), 0);
-        assert_eq!(java_string_hashcode("a"), 97);
-        assert_eq!(java_string_hashcode("abc"), 96354);
+    fn structured_id() {
+        assert_eq!(as_place_id("NSR:StopPlace:59977"), "NSR-StopPlace-59977");
     }
 
     #[test]
-    fn test_create_numeric() {
-        assert_eq!(NominatimId::StopPlace.create("123"), 400123);
+    fn address_id() {
+        assert_eq!(as_place_id("KVE:PostalAddress:225678815"), "KVE-PostalAddress-225678815");
     }
 
     #[test]
-    fn test_gosp_known_id() {
-        let id = NominatimId::Gosp.create("NSR:GroupOfStopPlaces:1");
-        assert_eq!(id, 4501);
-    }
-
-    #[test]
-    fn test_all_prefixes() {
-        assert_eq!(NominatimId::Address.create("1"), 1001);
-        assert_eq!(NominatimId::Street.create("1"), 2001);
-        assert_eq!(NominatimId::Stedsnavn.create("1"), 3001);
-        assert_eq!(NominatimId::StopPlace.create("1"), 4001);
-        assert_eq!(NominatimId::Gosp.create("1"), 4501);
-        assert_eq!(NominatimId::Osm.create("1"), 5001);
-        assert_eq!(NominatimId::Poi.create("1"), 6001);
-    }
-
-    #[test]
-    fn test_create_from_i64() {
-        assert_eq!(NominatimId::StopPlace.create_from_i64(42), 40042);
-        assert_eq!(NominatimId::Address.create_from_i64(123456), 100123456);
-    }
-
-    #[test]
-    fn test_negative_numeric_uses_abs() {
-        // Negative numbers should use absolute value
-        assert_eq!(NominatimId::Osm.create("-123"), 500123);
-    }
-
-    #[test]
-    fn test_colon_separated_ids_use_numeric_tail() {
-        // Structured IDs like KVE:PostalAddress:123 should extract the numeric tail
-        assert_eq!(NominatimId::Address.create("KVE:PostalAddress:123"), 100123);
-        assert_eq!(NominatimId::StopPlace.create("NSR:StopPlace:1"), 4001);
-        assert_eq!(NominatimId::StopPlace.create("NSR:StopPlace:2"), 4002);
-        // No collision between different numeric tails
-        assert_ne!(
-            NominatimId::Address.create("KVE:PostalAddress:41209458"),
-            NominatimId::Address.create("KVE:PostalAddress:41209459"),
+    fn street_id_with_spaces() {
+        assert_eq!(
+            as_place_id("KVE:TopographicPlace:0301-Karl Johans gate"),
+            "KVE-TopographicPlace-0301-Karl_Johans_gate"
         );
     }
 
     #[test]
-    fn test_java_hashcode_known_values() {
-        // Verified against Java String.hashCode()
-        assert_eq!(java_string_hashcode("hello"), 99162322);
-        // "test" in Java: 't'*31^3 + 'e'*31^2 + 's'*31 + 't' = 3556498
-        assert_eq!(java_string_hashcode("test"), 3556498);
+    fn truncates_at_60_chars() {
+        let long_id = "A".repeat(70);
+        assert_eq!(as_place_id(&long_id).len(), 60);
     }
 
     #[test]
-    fn test_java_hashcode_wrapping_arithmetic() {
-        // Long strings can cause i32 overflow, must use wrapping arithmetic
-        let hash = java_string_hashcode("this is a very long string that will overflow i32");
-        // Just verify it doesn't panic and produces a deterministic result
-        assert_eq!(hash, java_string_hashcode("this is a very long string that will overflow i32"));
+    fn plain_numeric_id() {
+        assert_eq!(as_place_id("12345"), "12345");
     }
 }

@@ -8,7 +8,7 @@ use crate::common::text::{join_osm_values, OSM_TAG_SEPARATOR};
 use crate::common::translator;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
-use crate::target::nominatim_id::NominatimId;
+use crate::target::nominatim_id::as_place_id;
 use crate::target::nominatim_place::*;
 use std::collections::HashMap;
 use std::path::Path;
@@ -138,13 +138,12 @@ pub(crate) fn convert_stop_place(
     let indexed_alt = build_stop_alt_names(sp, sp_name, child_stop_names);
     let visible_alt: Vec<String> = alt_stop_names(sp, sp_name, Some("label"));
 
-    let nominatim_id = NominatimId::StopPlace.create(&sp.id);
     let entry = NominatimPlace {
         type_: "Place".to_string(),
         content: vec![PlaceContent {
-            place_id: nominatim_id,
+            place_id: as_place_id(&sp.id),
             object_type: "N".to_string(),
-            object_id: nominatim_id,
+            object_id: 0,
             categories: indexed_cats,
             rank_address: config.stop_place.rank_address,
             importance,
@@ -357,13 +356,12 @@ pub(crate) fn convert_gosp(
     if let Some(gid) = &locality_gid { indexed_cats.push(locality_ids_category(gid)); }
     indexed_cats.push(as_category(&gosp.id));
 
-    let nominatim_id = NominatimId::Gosp.create(&gosp.id);
     Some(NominatimPlace {
         type_: "Place".to_string(),
         content: vec![PlaceContent {
-            place_id: nominatim_id,
+            place_id: as_place_id(&gosp.id),
             object_type: "N".to_string(),
-            object_id: nominatim_id,
+            object_id: 0,
             categories: indexed_cats,
             rank_address: config.group_of_stop_places.rank_address,
             importance,

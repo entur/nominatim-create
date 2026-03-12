@@ -52,7 +52,7 @@ pub struct NominatimPlace {
 
 #[derive(Debug, Serialize)]
 pub struct PlaceContent {
-    pub place_id: i64,
+    pub place_id: String,
     pub object_type: String,
     pub object_id: i64,
     pub categories: Vec<String>,
@@ -158,9 +158,9 @@ mod tests {
         let place = NominatimPlace {
             type_: "Place".to_string(),
             content: vec![PlaceContent {
-                place_id: 400123,
+                place_id: "NSR-StopPlace-123".to_string(),
                 object_type: "N".to_string(),
-                object_id: 123,
+                object_id: 0,
                 categories: vec!["source.nsr".to_string()],
                 rank_address: 30,
                 importance: RawNumber::from_f64_6dp(0.252848),
@@ -196,9 +196,9 @@ mod tests {
     #[test]
     fn test_place_serialization_optional_fields_omitted() {
         let place = PlaceContent {
-            place_id: 100001,
+            place_id: "KVE-PostalAddress-1".to_string(),
             object_type: "N".to_string(),
-            object_id: 1,
+            object_id: 0,
             categories: vec![],
             rank_address: 26,
             importance: RawNumber::from_f64_6dp(0.230103),

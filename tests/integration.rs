@@ -145,7 +145,7 @@ fn stopplace_entries_have_required_fields() {
     let lines = read_ndjson(&output);
     for entry in &lines[1..] {
         let content = &entry["content"][0];
-        assert!(content["place_id"].is_i64(), "missing place_id");
+        assert!(content["place_id"].is_string(), "missing place_id");
         assert!(content["object_type"].is_string(), "missing object_type");
         assert!(content["categories"].is_array(), "missing categories");
         assert!(content["rank_address"].is_i64(), "missing rank_address");

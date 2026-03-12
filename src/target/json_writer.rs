@@ -69,13 +69,13 @@ mod tests {
     use super::*;
     use crate::common::extra::Extra;
 
-    fn make_place(place_id: i64, name: &str) -> NominatimPlace {
+    fn make_place(place_id: &str, name: &str) -> NominatimPlace {
         NominatimPlace {
             type_: "Place".to_string(),
             content: vec![PlaceContent {
-                place_id,
+                place_id: place_id.to_string(),
                 object_type: "N".to_string(),
-                object_id: place_id,
+                object_id: 0,
                 categories: vec!["source.nsr".to_string()],
                 rank_address: 30,
                 importance: RawNumber::from_f64_6dp(0.5),
@@ -102,7 +102,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.ndjson");
 
-        let entries = vec![make_place(1, "Oslo S"), make_place(2, "Bergen")];
+        let entries = vec![make_place("1","Oslo S"), make_place("2","Bergen")];
         JsonWriter::export(&entries, &path, false).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -122,9 +122,9 @@ mod tests {
         let path = dir.join("test.ndjson");
 
         // First write
-        JsonWriter::export(&[make_place(1, "Oslo")], &path, false).unwrap();
+        JsonWriter::export(&[make_place("1","Oslo")], &path, false).unwrap();
         // Append
-        JsonWriter::export(&[make_place(2, "Bergen")], &path, true).unwrap();
+        JsonWriter::export(&[make_place("2","Bergen")], &path, true).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
@@ -141,7 +141,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.ndjson");
 
-        JsonWriter::export(&[make_place(1, "Test")], &path, false).unwrap();
+        JsonWriter::export(&[make_place("1","Test")], &path, false).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         for line in content.lines() {

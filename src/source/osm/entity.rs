@@ -7,7 +7,7 @@ use crate::common::importance::ImportanceCalculator;
 use crate::common::text::join_osm_values;
 use crate::common::util::titleize;
 use crate::config::Config;
-use crate::target::nominatim_id::NominatimId;
+use crate::target::nominatim_id::as_place_id;
 use crate::target::nominatim_place::*;
 
 use super::admin::AdministrativeBoundary;
@@ -224,14 +224,13 @@ impl<'a> OsmEntityConverter<'a> {
             &locality_gid,
         );
 
-        let nominatim_id = NominatimId::Osm.create_from_i64(entity_id);
         let rank_address = self.determine_rank_address(tags);
         let importance = self.calculate_importance(tags);
 
         let content = PlaceContent {
-            place_id: nominatim_id,
+            place_id: as_place_id(&osm_id),
             object_type: object_type.to_string(),
-            object_id: nominatim_id,
+            object_id: 0,
             categories: indexed_categories,
             rank_address,
             importance,
