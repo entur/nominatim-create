@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
+use crate::common::category::{LAYER_POI, SOURCE_OSM};
 use crate::common::country::Country;
 use crate::common::extra::Extra;
 use crate::common::geo;
@@ -30,7 +31,7 @@ const LEGACY_CATEGORY_PREFIX: &str = "legacy.category.";
 const COUNTRY_PREFIX: &str = "country.";
 const COUNTY_ID_PREFIX: &str = "county_gid.";
 const LOCALITY_ID_PREFIX: &str = "locality_gid.";
-const SOURCE_OSM: &str = "openstreetmap";
+
 
 const ACCURACY_POINT: &str = "point";
 const ACCURACY_POLYGON: &str = "polygon";
@@ -348,7 +349,7 @@ fn build_extra(
 ) -> Extra {
     Extra {
         id: Some(osm_id.to_string()),
-        source: Some(SOURCE_OSM.to_string()),
+        source: Some("openstreetmap".to_string()),
         accuracy: Some(accuracy.to_string()),
         country_a: country.as_ref().map(|c| c.three_letter_code.clone()),
         county_gid: county_gid.clone(),
@@ -367,6 +368,8 @@ fn build_indexed_categories(
     locality_gid: &Option<String>,
 ) -> Vec<String> {
     let mut cats = visible_categories.to_vec();
+    cats.push(SOURCE_OSM.to_string());
+    cats.push(LAYER_POI.to_string());
     if let Some(c) = country {
         cats.push(format!("{}{}", COUNTRY_PREFIX, c.name));
     }

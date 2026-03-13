@@ -72,6 +72,7 @@ pub(crate) fn convert_to_nominatim(entry: &StedsnavnEntry, config: &Config, impo
 
     let mut indexed_cats = visible_cats.clone();
     indexed_cats.push(SOURCE_STEDSNAVN.to_string());
+    indexed_cats.push(LAYER_POI.to_string());
     indexed_cats.push(format!("{COUNTRY_PREFIX}{}", country.name));
     indexed_cats.push(county_ids_category(&county_gid));
     indexed_cats.push(locality_ids_category(&locality_gid));

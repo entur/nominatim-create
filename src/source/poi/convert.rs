@@ -53,6 +53,8 @@ fn convert_topo_place(config: &Config, tp: &TopographicPlaceXml) -> Option<Nomin
     let visible_tag = OSM_CUSTOM_POI;
     let indexed_cats = vec![
         visible_tag.to_string(),
+        SOURCE_POI.to_string(),
+        LAYER_POI.to_string(),
         format!("{COUNTRY_PREFIX}{}", country.name),
         as_category(id),
     ];

@@ -11,6 +11,15 @@ pub const SOURCE_NSR: &str = "source.nsr";
 
 pub const GOSP: &str = "GroupOfStopPlaces";
 
+pub const SOURCE_OSM: &str = "source.openstreetmap";
+pub const SOURCE_POI: &str = "source.custom.poi";
+
+pub const LAYER_ADDRESS: &str = "layer.address";
+pub const LAYER_STREET: &str = "layer.street";
+pub const LAYER_STOP_PLACE: &str = "layer.stopPlace";
+pub const LAYER_GOSP: &str = "layer.groupOfStopPlaces";
+pub const LAYER_POI: &str = "layer.poi";
+
 pub const COUNTRY_PREFIX: &str = "country.";
 pub const TARIFF_ZONE_ID_PREFIX: &str = "tariff_zone_id.";
 pub const TARIFF_ZONE_AUTH_PREFIX: &str = "tariff_zone_authority.";

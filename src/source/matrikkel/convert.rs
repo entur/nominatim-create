@@ -81,6 +81,7 @@ fn convert_address(
 
     let mut indexed_cats: Vec<String> = tags.iter().map(|s| s.to_string()).collect();
     indexed_cats.push(SOURCE_ADRESSE.to_string());
+    indexed_cats.push(LAYER_ADDRESS.to_string());
     indexed_cats.push(format!("{COUNTRY_PREFIX}{}", country.name));
     indexed_cats.push(id_cat);
     if let Some(gid) = &county_gid { indexed_cats.push(county_ids_category(gid)); }
@@ -156,6 +157,7 @@ fn convert_street(
     let tags = [OSM_STREET, "legacy.source.whosonfirst", "legacy.layer.address", "legacy.category.street"];
     let mut indexed_cats: Vec<String> = tags.iter().map(|s| s.to_string()).collect();
     indexed_cats.push(SOURCE_ADRESSE.to_string());
+    indexed_cats.push(LAYER_STREET.to_string());
     indexed_cats.push(format!("{COUNTRY_PREFIX}{}", country.name));
     indexed_cats.push(as_category(&id));
     if let Some(gid) = &county_gid { indexed_cats.push(county_ids_category(gid)); }

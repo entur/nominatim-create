@@ -216,6 +216,8 @@ fn build_stop_categories(
         StopPlaceRole::Parent => "parent",
         StopPlaceRole::Standalone => "standalone",
     }));
+    indexed_cats.push(SOURCE_NSR.to_string());
+    indexed_cats.push(LAYER_STOP_PLACE.to_string());
     append_tariff_zone_categories(&mut indexed_cats, sp, fare_zones);
     indexed_cats.push(format!("{COUNTRY_PREFIX}{}", country.name));
     if let Some(gid) = county_gid { indexed_cats.push(county_ids_category(gid)); }
@@ -351,6 +353,7 @@ pub(crate) fn convert_gosp(
     ];
     let mut indexed_cats = visible_cats.clone();
     indexed_cats.push(SOURCE_NSR.to_string());
+    indexed_cats.push(LAYER_GOSP.to_string());
     indexed_cats.push(format!("{COUNTRY_PREFIX}{}", country.name));
     if let Some(gid) = &county_gid { indexed_cats.push(county_ids_category(gid)); }
     if let Some(gid) = &locality_gid { indexed_cats.push(locality_ids_category(gid)); }
