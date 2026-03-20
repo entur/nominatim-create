@@ -43,105 +43,101 @@ fn geonorge_stedsnavn_url(region: &str) -> String {
 #[derive(Parser)]
 struct ConvertArgs {
     /// Input file or URL (http/https). ZIP archives are extracted automatically.
-    #[arg(short = 'i')]
+    #[arg(short, long)]
     input: PathBuf,
     /// Output file
-    #[arg(short = 'o')]
+    #[arg(short, long)]
     output: PathBuf,
     /// Configuration file (defaults to converter.json)
-    #[arg(short = 'c')]
+    #[arg(short, long)]
     config: Option<PathBuf>,
     /// Append to existing output file
-    #[arg(short = 'a', default_value_t = false)]
+    #[arg(short, long, default_value_t = false)]
     append: bool,
     /// Force overwrite if output file exists
-    #[arg(short = 'f', default_value_t = false)]
+    #[arg(short, long, default_value_t = false)]
     force: bool,
 }
 
 #[derive(Parser)]
 struct BelagenhetArgs {
     /// Input .gpkg file (required when -m is not used)
-    #[arg(short = 'i')]
+    #[arg(short, long)]
     input: Option<PathBuf>,
     /// Output file
-    #[arg(short = 'o', required_unless_present = "list")]
+    #[arg(short, long, required_unless_present = "list")]
     output: Option<PathBuf>,
-    /// Configuration file (defaults to converter.json)
-    #[arg(short = 'c')]
-    config: Option<PathBuf>,
-    /// Append to existing output file
-    #[arg(short = 'a', default_value_t = false)]
-    append: bool,
-    /// Force overwrite if output file exists
-    #[arg(short = 'f', default_value_t = false)]
-    force: bool,
-    /// Municipality code(s) to download from Lantmäteriet. Use "all" for entire Sweden,
-    /// a 2-digit county code (e.g. 01) for all municipalities in a county,
-    /// or specific 4-digit codes (e.g. 0180). Requires LANTMATERIET_USER/PASS env vars.
-    #[arg(short = 'm', long = "municipality", num_args = 1.., conflicts_with = "input")]
+    /// Download from Lantmäteriet by municipality code (e.g. 0180, 01, or "all")
+    #[arg(short, long = "municipality", value_name = "CODE", num_args = 1.., conflicts_with = "input")]
     municipality: Option<Vec<String>>,
     /// List available municipalities for download
-    #[arg(short = 'l', long = "list", default_value_t = false)]
+    #[arg(short, long, default_value_t = false)]
     list: bool,
+    /// Configuration file (defaults to converter.json)
+    #[arg(short, long)]
+    config: Option<PathBuf>,
+    /// Append to existing output file
+    #[arg(short, long, default_value_t = false)]
+    append: bool,
+    /// Force overwrite if output file exists
+    #[arg(short, long, default_value_t = false)]
+    force: bool,
 }
 
 #[derive(Parser)]
 struct StedsnavnArgs {
-    /// Input file or URL (use -m to download from Geonorge instead)
-    #[arg(short = 'i', conflicts_with = "region")]
+    /// Input file or URL (use -r to download from Geonorge instead)
+    #[arg(short, long, conflicts_with = "region")]
     input: Option<PathBuf>,
     /// Output file
-    #[arg(short = 'o', required_unless_present = "list")]
+    #[arg(short, long, required_unless_present = "list")]
     output: Option<PathBuf>,
-    /// Configuration file (defaults to converter.json)
-    #[arg(short = 'c')]
-    config: Option<PathBuf>,
-    /// Append to existing output file
-    #[arg(short = 'a', default_value_t = false)]
-    append: bool,
-    /// Force overwrite if output file exists
-    #[arg(short = 'f', default_value_t = false)]
-    force: bool,
-    /// Download from Geonorge. Use a county code (e.g. 03 for Oslo), county name,
-    /// or "0000" / "all" for all of Norway.
-    #[arg(short = 'r', long = "region")]
+    /// Download from Geonorge by county code (e.g. 03), name (e.g. Oslo), or "all"
+    #[arg(short, long)]
     region: Option<String>,
     /// List available regions for download
-    #[arg(short = 'l', long = "list", default_value_t = false)]
+    #[arg(short, long, default_value_t = false)]
     list: bool,
+    /// Configuration file (defaults to converter.json)
+    #[arg(short, long)]
+    config: Option<PathBuf>,
+    /// Append to existing output file
+    #[arg(short, long, default_value_t = false)]
+    append: bool,
+    /// Force overwrite if output file exists
+    #[arg(short, long, default_value_t = false)]
+    force: bool,
 }
 
 #[derive(Parser)]
 struct MatrikkelArgs {
-    /// Input CSV file or URL (use -m to download from Geonorge instead)
-    #[arg(short = 'i', conflicts_with = "region")]
+    /// Input CSV file or URL (use -r to download from Geonorge instead)
+    #[arg(short, long, conflicts_with = "region")]
     input: Option<PathBuf>,
     /// Output file
-    #[arg(short = 'o', required_unless_present = "list")]
+    #[arg(short, long, required_unless_present = "list")]
     output: Option<PathBuf>,
-    /// Configuration file (defaults to converter.json)
-    #[arg(short = 'c')]
-    config: Option<PathBuf>,
-    /// Append to existing output file
-    #[arg(short = 'a', default_value_t = false)]
-    append: bool,
-    /// Force overwrite if output file exists
-    #[arg(short = 'f', default_value_t = false)]
-    force: bool,
-    /// Download from Geonorge. Use a county code (e.g. 03 for Oslo), county name,
-    /// or "0000" / "all" for all of Norway.
-    #[arg(short = 'r', long = "region")]
+    /// Download from Geonorge by county code (e.g. 03), name (e.g. Oslo), or "all"
+    #[arg(short, long)]
     region: Option<String>,
     /// List available regions for download
-    #[arg(short = 'l', long = "list", default_value_t = false)]
+    #[arg(short, long, default_value_t = false)]
     list: bool,
     /// Stedsnavn GML file or URL for county data (auto-downloaded when using -r)
-    #[arg(short = 'g')]
+    #[arg(short = 'g', long = "gml", value_name = "GML")]
     stedsnavn_gml: Option<PathBuf>,
     /// Skip county population
-    #[arg(long = "no-county", default_value_t = false)]
+    #[arg(short = 'n', long = "no-county", default_value_t = false)]
     no_county: bool,
+    /// Configuration file (defaults to converter.json)
+    #[arg(short, long)]
+    config: Option<PathBuf>,
+    /// Append to existing output file
+    #[arg(short, long, default_value_t = false)]
+    append: bool,
+    /// Force overwrite if output file exists
+    #[arg(short, long, default_value_t = false)]
+    force: bool,
 }
 
 fn main() {
