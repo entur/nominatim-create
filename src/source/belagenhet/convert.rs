@@ -82,7 +82,7 @@ fn convert_address(
     let housenumber = addr.housenumber();
 
     // Use Lantmäteriet's unique object identifier for a collision-free stable ID
-    let id = format!("LAN:BelagenhetAdress:{}", addr.objektidentitet);
+    let id = format!("LAN:PostalAddress:{}", addr.objektidentitet);
     let id_cat = as_category(&id);
 
     let c_gid = county_gid(addr.lanskod.as_deref());
