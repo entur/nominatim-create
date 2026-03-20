@@ -18,6 +18,9 @@ iso3166-static = "0.4.1"
 rusqlite = { version = "0.35", features = ["bundled"] }
 dotenvy = "0.15"
 
+[features]
+external-tests = []
+
 [profile.release]
 lto = true
 strip = true
