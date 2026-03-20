@@ -1,4 +1,5 @@
 pub mod category;
+pub mod norwegian_counties;
 pub mod input;
 pub mod coordinate;
 pub mod country;

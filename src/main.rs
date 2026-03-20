@@ -5,6 +5,7 @@ mod target;
 
 use clap::{Parser, Subcommand};
 use common::input::{cleanup_input, resolve_input};
+use common::norwegian_counties;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -24,11 +25,19 @@ enum Action {
     /// Convert OSM PBF data
     Osm(ConvertArgs),
     /// Convert Stedsnavn GML data (Kartverket)
-    Stedsnavn(ConvertArgs),
+    Stedsnavn(StedsnavnArgs),
     /// Convert POI NeTEx XML data
     Poi(ConvertArgs),
     /// Convert Swedish belägenhetsadresser (Lantmäteriet)
     Belagenhet(BelagenhetArgs),
+}
+
+fn geonorge_matrikkel_url(region: &str) -> String {
+    format!("https://nedlasting.geonorge.no/geonorge/Basisdata/MatrikkelenAdresse/CSV/Basisdata_{region}_25833_MatrikkelenAdresse_CSV.zip")
+}
+
+fn geonorge_stedsnavn_url(region: &str) -> String {
+    format!("https://nedlasting.geonorge.no/geonorge/Basisdata/Stedsnavn/GML/Basisdata_{region}_25833_Stedsnavn_GML.zip")
 }
 
 #[derive(Parser)]
@@ -56,8 +65,8 @@ struct BelagenhetArgs {
     #[arg(short = 'i')]
     input: Option<PathBuf>,
     /// Output file
-    #[arg(short = 'o')]
-    output: PathBuf,
+    #[arg(short = 'o', required_unless_present = "list")]
+    output: Option<PathBuf>,
     /// Configuration file (defaults to converter.json)
     #[arg(short = 'c')]
     config: Option<PathBuf>,
@@ -72,13 +81,62 @@ struct BelagenhetArgs {
     /// or specific 4-digit codes (e.g. 0180). Requires LANTMATERIET_USER/PASS env vars.
     #[arg(short = 'm', long = "municipality", num_args = 1.., conflicts_with = "input")]
     municipality: Option<Vec<String>>,
+    /// List available municipalities for download
+    #[arg(short = 'l', long = "list", default_value_t = false)]
+    list: bool,
+}
+
+#[derive(Parser)]
+struct StedsnavnArgs {
+    /// Input file or URL (use -m to download from Geonorge instead)
+    #[arg(short = 'i', conflicts_with = "region")]
+    input: Option<PathBuf>,
+    /// Output file
+    #[arg(short = 'o', required_unless_present = "list")]
+    output: Option<PathBuf>,
+    /// Configuration file (defaults to converter.json)
+    #[arg(short = 'c')]
+    config: Option<PathBuf>,
+    /// Append to existing output file
+    #[arg(short = 'a', default_value_t = false)]
+    append: bool,
+    /// Force overwrite if output file exists
+    #[arg(short = 'f', default_value_t = false)]
+    force: bool,
+    /// Download from Geonorge. Use a county code (e.g. 03 for Oslo), county name,
+    /// or "0000" / "all" for all of Norway.
+    #[arg(short = 'r', long = "region")]
+    region: Option<String>,
+    /// List available regions for download
+    #[arg(short = 'l', long = "list", default_value_t = false)]
+    list: bool,
 }
 
 #[derive(Parser)]
 struct MatrikkelArgs {
-    #[command(flatten)]
-    common: ConvertArgs,
-    /// Stedsnavn GML file or URL for county data
+    /// Input CSV file or URL (use -m to download from Geonorge instead)
+    #[arg(short = 'i', conflicts_with = "region")]
+    input: Option<PathBuf>,
+    /// Output file
+    #[arg(short = 'o', required_unless_present = "list")]
+    output: Option<PathBuf>,
+    /// Configuration file (defaults to converter.json)
+    #[arg(short = 'c')]
+    config: Option<PathBuf>,
+    /// Append to existing output file
+    #[arg(short = 'a', default_value_t = false)]
+    append: bool,
+    /// Force overwrite if output file exists
+    #[arg(short = 'f', default_value_t = false)]
+    force: bool,
+    /// Download from Geonorge. Use a county code (e.g. 03 for Oslo), county name,
+    /// or "0000" / "all" for all of Norway.
+    #[arg(short = 'r', long = "region")]
+    region: Option<String>,
+    /// List available regions for download
+    #[arg(short = 'l', long = "list", default_value_t = false)]
+    list: bool,
+    /// Stedsnavn GML file or URL for county data (auto-downloaded when using -r)
     #[arg(short = 'g')]
     stedsnavn_gml: Option<PathBuf>,
     /// Skip county population
@@ -104,13 +162,36 @@ fn main() {
             source::stopplace::convert(cfg, input, output, append)
         }),
         Action::Matrikkel(args) => {
-            if args.stedsnavn_gml.is_none() && !args.no_county {
+            if args.list {
+                norwegian_counties::list_regions();
+                return;
+            }
+            let input_path = match (&args.input, &args.region) {
+                (Some(path), _) => path.clone(),
+                (None, Some(region)) => {
+                    let slug = resolve_geonorge_region(region);
+                    PathBuf::from(geonorge_matrikkel_url(&slug))
+                }
+                (None, None) => {
+                    eprintln!("Error: matrikkel requires -i <file> or -r <region> (e.g. -r 03 for Oslo, -r all for Norway)");
+                    std::process::exit(1);
+                }
+            };
+
+            // Auto-download stedsnavn GML for county data when using -m
+            let gml_source = if args.no_county {
+                None
+            } else if let Some(gml) = args.stedsnavn_gml {
+                Some(gml)
+            } else if let Some(region) = &args.region {
+                let slug = resolve_geonorge_region(region);
+                Some(PathBuf::from(geonorge_stedsnavn_url(&slug)))
+            } else {
                 eprintln!("Error: matrikkel requires -g <stedsnavn.gml> for county data, or --no-county to skip it.");
                 std::process::exit(1);
-            }
+            };
 
-            // Resolve the -g input separately
-            let gml_resolved = args.stedsnavn_gml.as_ref().map(|g| resolve_input(g, Some("*.gml")));
+            let gml_resolved = gml_source.as_ref().map(|g| resolve_input(g, Some("*.gml")));
             let gml_result = match gml_resolved {
                 Some(Ok((path, is_temp))) => Some((path, is_temp)),
                 Some(Err(e)) => {
@@ -120,8 +201,16 @@ fn main() {
                 None => None,
             };
 
+            let convert_args = ConvertArgs {
+                input: input_path,
+                output: args.output.unwrap(),
+                config: args.config,
+                append: args.append,
+                force: args.force,
+            };
+
             let gml_path = gml_result.as_ref().map(|(p, _)| p.as_path());
-            let result = run_conversion("Matrikkel", args.common, Some("*.csv"), |cfg, input, output, append| {
+            let result = run_conversion("Matrikkel", convert_args, Some("*.csv"), |cfg, input, output, append| {
                 source::matrikkel::convert(cfg, input, output, append, gml_path)
             });
 
@@ -134,13 +223,41 @@ fn main() {
         Action::Osm(args) => run_conversion("OSM PBF", args, None, |cfg, input, output, append| {
             source::osm::convert(cfg, input, output, append)
         }),
-        Action::Stedsnavn(args) => run_conversion("Stedsnavn", args, Some("*.gml"), |cfg, input, output, append| {
-            source::stedsnavn::convert(cfg, input, output, append)
-        }),
+        Action::Stedsnavn(args) => {
+            if args.list {
+                norwegian_counties::list_regions();
+                return;
+            }
+            let input_path = match (&args.input, &args.region) {
+                (Some(path), _) => path.clone(),
+                (None, Some(region)) => {
+                    let slug = resolve_geonorge_region(region);
+                    PathBuf::from(geonorge_stedsnavn_url(&slug))
+                }
+                (None, None) => {
+                    eprintln!("Error: stedsnavn requires -i <file> or -r <region> (e.g. -r 03 for Oslo, -r all for Norway)");
+                    std::process::exit(1);
+                }
+            };
+            let convert_args = ConvertArgs {
+                input: input_path,
+                output: args.output.unwrap(),
+                config: args.config,
+                append: args.append,
+                force: args.force,
+            };
+            run_conversion("Stedsnavn", convert_args, Some("*.gml"), |cfg, input, output, append| {
+                source::stedsnavn::convert(cfg, input, output, append)
+            })
+        }
         Action::Poi(args) => run_conversion("POI", args, None, |cfg, input, output, append| {
             source::poi::convert(cfg, input, output, append)
         }),
         Action::Belagenhet(args) => {
+            if args.list {
+                list_swedish_municipalities();
+                return;
+            }
             if let Some(ref municipalities) = args.municipality {
                 let codes = resolve_municipality_codes(municipalities);
                 run_belagenhet_download(&args, &codes)
@@ -151,7 +268,7 @@ fn main() {
                 });
                 let convert_args = ConvertArgs {
                     input: input.clone(),
-                    output: args.output,
+                    output: args.output.unwrap(),
                     config: args.config,
                     append: args.append,
                     force: args.force,
@@ -218,7 +335,7 @@ fn run_belagenhet_download(
     municipalities: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = config::Config::load(args.config.as_deref())?;
-    let output = &args.output;
+    let output = args.output.as_ref().expect("output required for download");
 
     if output.exists() {
         if !args.force && !args.append {
@@ -256,6 +373,28 @@ fn run_belagenhet_download(
         output.display()
     );
     Ok(())
+}
+
+fn resolve_geonorge_region(region: &str) -> String {
+    match norwegian_counties::resolve_geonorge_region(region) {
+        Ok(slug) => slug,
+        Err(msg) => {
+            eprintln!("Error: {msg}");
+            norwegian_counties::list_regions();
+            std::process::exit(1);
+        }
+    }
+}
+
+fn list_swedish_municipalities() {
+    use source::belagenhet::municipalities::MUNICIPALITIES;
+    eprintln!("Available municipalities for Lantmäteriet download:");
+    eprintln!("  all         All {} municipalities", MUNICIPALITIES.len());
+    eprintln!("  XX          All municipalities in county XX (2-digit county code)");
+    eprintln!();
+    for (code, name) in MUNICIPALITIES {
+        eprintln!("  {code}  {name}");
+    }
 }
 
 /// Expand municipality arguments: "all" becomes all 290 codes, county prefixes (2-digit)
