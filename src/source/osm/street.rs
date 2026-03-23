@@ -70,7 +70,7 @@ pub const HIGHWAY_TYPES: &[&str] = &[
 /// The `lookup_cache` uses `RefCell` to allow caching through a shared (`&self`) reference.
 /// This is Rust's "interior mutability" pattern -- the borrow rules are checked at runtime
 /// instead of compile time, letting `find_nearest_street` cache results without requiring
-/// `&mut self`. (In Kotlin/Java, you'd just use a mutable field -- Rust is more explicit.)
+/// `&mut self`.
 pub struct StreetIndex {
     segments: Vec<StreetSegment>,
     spatial_index: HashMap<(i32, i32), Vec<usize>>,

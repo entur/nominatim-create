@@ -87,6 +87,8 @@ pub fn convert_all(
     Ok(())
 }
 
+/// A stop place's role in the parent-child hierarchy. Affects which source category
+/// and multimodal marker are assigned in the output.
 #[derive(Debug, PartialEq)]
 enum StopPlaceRole {
     Child,
@@ -168,6 +170,8 @@ pub(crate) fn convert_stop_place(
     Some(entry)
 }
 
+/// Determine role: if this stop has children → Parent, if it references a parent → Child,
+/// otherwise → Standalone.
 fn classify_role(child_types: &[String], has_parent: bool) -> StopPlaceRole {
     if !child_types.is_empty() {
         StopPlaceRole::Parent
@@ -228,6 +232,10 @@ fn build_stop_categories(
     (visible_cats, indexed_cats)
 }
 
+/// Append tariff zone categories in 3 passes to match the original converter's ordering:
+/// 1. Zone IDs (e.g. `tariff_zone_id.RUT.TariffZone.1`)
+/// 2. Zone authorities extracted from the zone ref prefix (e.g. `tariff_zone_authority.RUT`)
+/// 3. Fare zone authorities from the FareZone → AuthorityRef lookup
 fn append_tariff_zone_categories(
     indexed_cats: &mut Vec<String>,
     sp: &StopPlaceXml,
@@ -240,7 +248,9 @@ fn append_tariff_zone_categories(
             indexed_cats.push(tariff_zone_id_category(ref_));
         }
     }
-    // Pass 2: tariff zone authorities (deduplicated)
+    // Pass 2: tariff zone authorities (deduplicated).
+    // Zone refs follow the pattern "AUTHORITY:TariffZone:NUMBER", so the authority
+    // is the prefix before the first colon.
     let mut seen_tz_auth = std::collections::HashSet::new();
     for tz_ref in &tz.refs {
         if let Some(ref_) = &tz_ref.ref_

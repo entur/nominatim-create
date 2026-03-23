@@ -11,7 +11,8 @@ pub fn as_place_id(id: &str) -> String {
     let has_non_ascii = id.bytes().any(|b| b > 127);
 
     if has_non_ascii {
-        // Use prefix + hash to avoid collisions from lossy character replacement
+        // Use prefix + hash to avoid collisions from lossy character replacement.
+        // Budget: 43 chars for the sanitized prefix + 1 dash + 16 hex chars = 60 max.
         let prefix: String = id
             .chars()
             .map(|c| match c {

@@ -38,11 +38,11 @@ pub fn convert_sweref99tm_to_lat_lon(easting: f64, northing: f64) -> Coordinate 
     })
 }
 
-/// Embedded country boundaries data (same file as used by Kotlin converter).
+/// Embedded country boundaries data.
 const BOUNDARIES_DATA: &[u8] = include_bytes!("../../data/boundaries60x30.ser");
 
-/// `LazyLock` is Rust's equivalent of Kotlin's `by lazy { }` -- the boundaries data is
-/// deserialized once on first access and then shared immutably across all threads.
+/// `LazyLock` initializes the boundaries data lazily on first access, then shares
+/// the result immutably across all threads.
 static BOUNDARIES: LazyLock<CountryBoundaries> = LazyLock::new(|| {
     CountryBoundaries::from_reader(BOUNDARIES_DATA)
         .expect("Failed to load country boundaries")

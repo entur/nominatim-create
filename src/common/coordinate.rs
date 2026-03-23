@@ -13,10 +13,13 @@ impl Coordinate {
         Self { lat, lon }
     }
 
+    /// GeoJSON-style centroid: `[longitude, latitude]` (note: lon first, not lat).
     pub fn centroid(&self) -> Vec<f64> {
         vec![round6(self.lon), round6(self.lat)]
     }
 
+    /// GeoJSON-style bounding box: `[min_lon, min_lat, max_lon, max_lat]`.
+    /// For a point, min and max are identical.
     pub fn bbox(&self) -> Vec<f64> {
         vec![round6(self.lon), round6(self.lat), round6(self.lon), round6(self.lat)]
     }

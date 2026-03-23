@@ -1,9 +1,14 @@
 use quick_xml::events::Event;
 use quick_xml::Reader;
 
+/// SSR place types to include: cities (by), city districts (bydel), urban settlements
+/// (tettsted/tettsteddel), and dense built-up areas (tettbebyggelse).
 pub(crate) const TARGET_TYPES: &[&str] = &["by", "bydel", "tettsted", "tettsteddel", "tettbebyggelse"];
+/// Only include place names with an approved spelling status. "historisk" and other
+/// unapproved statuses are excluded.
 pub(crate) const ACCEPTED_STATUS: &[&str] = &["vedtatt", "godkjent", "privat", "samlevedtak"];
 
+/// A parsed SSR (Sentralt Stedsnavnregister) place name entry.
 pub(crate) struct StedsnavnEntry {
     pub lokal_id: String,
     pub stedsnavn: String,
@@ -12,7 +17,10 @@ pub(crate) struct StedsnavnEntry {
     pub kommunenavn: String,
     pub fylkesnummer: String,
     pub fylkesnavn: String,
-    pub coordinates: Vec<(f64, f64)>, // (easting, northing) UTM33
+    /// Coordinates in UTM33 (EPSG:25833): (easting, northing). Multiple points are
+    /// averaged to a single centroid during conversion.
+    pub coordinates: Vec<(f64, f64)>,
+    /// Alternative spellings from `annenSkrivemåte` elements in the GML.
     pub annen_skrivemaate: Vec<String>,
 }
 

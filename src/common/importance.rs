@@ -1,6 +1,12 @@
 use crate::common::util::round6;
 use crate::config::ImportanceConfig;
 
+/// Normalizes raw popularity scores to Photon importance values in the 0-1 range.
+///
+/// Uses log10 normalization because popularity values span many orders of magnitude
+/// (e.g. 1 for a small address to 1 billion for a major city). Log scaling compresses
+/// this range so that differences between low-popularity items are still visible.
+/// The `floor` config value sets the minimum importance (typically 0.1).
 pub struct ImportanceCalculator {
     config: ImportanceConfig,
 }

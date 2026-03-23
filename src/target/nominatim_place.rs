@@ -6,12 +6,12 @@ use serde::{Serialize, Serializer};
 pub struct RawNumber(pub String);
 
 impl RawNumber {
-    /// Format with exactly 6 decimal places (matches Kotlin's `.toBigDecimalWithScale(6)`).
+    /// Format with exactly 6 decimal places.
     pub fn from_f64_6dp(val: f64) -> Self {
         Self(format!("{:.6}", val))
     }
 
-    /// Use the default float representation (matches Kotlin's `.toBigDecimal()`).
+    /// Use the default float representation.
     pub fn from_f64(val: f64) -> Self {
         Self(val.to_string())
     }
@@ -26,6 +26,9 @@ impl Serialize for RawNumber {
     }
 }
 
+/// Custom serde serializer for `Vec<f64>` that formats each value with exactly 6 decimal
+/// places and emits them as raw JSON numbers (not strings). This is needed because serde's
+/// default float serialization omits trailing zeros and may use different precision.
 mod vec_f64_6dp {
     use serde::ser::SerializeSeq;
     use serde::Serializer;

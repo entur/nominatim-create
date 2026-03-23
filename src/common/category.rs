@@ -1,3 +1,19 @@
+// ---------------------------------------------------------------------------
+// Category string constants for Nominatim NDJSON output.
+//
+// Categories are dot-separated strings stored in each place's `categories` array.
+// They serve as facets for filtering/searching in the downstream Photon geocoder.
+//
+// Naming convention:
+//   osm.*      — primary entity type (address, street, stop_place, poi, etc.)
+//   source.*   — data source identifier (used by acceptance tests to filter by origin)
+//   layer.*    — broad classification layer (used for result type filtering)
+//   legacy.*   — compatibility categories matching the original converter's output
+//   country.*  — ISO country code
+//   *_gid.*    — geographic ID references (county, locality)
+// ---------------------------------------------------------------------------
+
+// Primary entity types
 pub const OSM_ADDRESS: &str = "osm.public_transport.address";
 pub const OSM_STREET: &str = "osm.public_transport.street";
 pub const OSM_STOP_PLACE: &str = "osm.public_transport.stop_place";
@@ -5,6 +21,7 @@ pub const OSM_POI: &str = "osm.public_transport.poi";
 pub const OSM_CUSTOM_POI: &str = "osm.public_transport.custom_poi";
 pub const OSM_GOSP: &str = "osm.public_transport.group_of_stop_places";
 
+// Data source identifiers
 pub const SOURCE_ADRESSE: &str = "source.kartverket.matrikkelenadresse";
 pub const SOURCE_STEDSNAVN: &str = "source.kartverket.stedsnavn";
 pub const SOURCE_NSR: &str = "source.nsr";
@@ -15,12 +32,14 @@ pub const SOURCE_OSM: &str = "source.openstreetmap";
 pub const SOURCE_POI: &str = "source.custom.poi";
 pub const SOURCE_BELAGENHET: &str = "source.lantmateriet.belagenhetsadress";
 
+// Classification layers
 pub const LAYER_ADDRESS: &str = "layer.address";
 pub const LAYER_STREET: &str = "layer.street";
 pub const LAYER_STOP_PLACE: &str = "layer.stopPlace";
 pub const LAYER_GOSP: &str = "layer.groupOfStopPlaces";
 pub const LAYER_POI: &str = "layer.poi";
 
+// Category prefixes
 pub const COUNTRY_PREFIX: &str = "country.";
 pub const TARIFF_ZONE_ID_PREFIX: &str = "tariff_zone_id.";
 pub const TARIFF_ZONE_AUTH_PREFIX: &str = "tariff_zone_authority.";
@@ -29,6 +48,8 @@ pub const COUNTY_ID_PREFIX: &str = "county_gid.";
 pub const LOCALITY_ID_PREFIX: &str = "locality_gid.";
 pub const LEGACY_CATEGORY_PREFIX: &str = "legacy.category.";
 
+/// Convert a colon-separated ID (e.g. `NSR:StopPlace:123`) to a dot-separated
+/// category string (`NSR.StopPlace.123`), since colons are not valid in categories.
 pub fn as_category(s: &str) -> String {
     s.replace(':', ".")
 }

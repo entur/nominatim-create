@@ -62,10 +62,13 @@ pub fn convert_all(
     Ok(())
 }
 
+/// Format a Swedish county (län) code as a Nominatim GID.
+/// "LAN" is the codespace for Lantmäteriet identifiers.
 fn county_gid(lanskod: Option<&str>) -> Option<String> {
     lanskod.map(|code| format!("LAN:TopographicPlace:{code}"))
 }
 
+/// Format a Swedish municipality (kommun) code as a Nominatim GID.
 fn locality_gid(kommunkod: Option<&str>) -> Option<String> {
     kommunkod.map(|code| format!("LAN:TopographicPlace:{code}"))
 }

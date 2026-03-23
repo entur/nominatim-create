@@ -138,6 +138,9 @@ pub(crate) struct FareZoneXml {
     pub authority_ref: Option<RefAttr>,
 }
 
+/// All NeTEx entities parsed from the XML, grouped by type. The HashMaps are keyed
+/// by entity ID for O(1) lookup during conversion (e.g. resolving topographic place
+/// references to county/municipality names).
 pub(crate) struct ParseResult {
     pub stop_places: Vec<StopPlaceXml>,
     pub groups: Vec<GroupOfStopPlacesXml>,

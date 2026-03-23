@@ -191,10 +191,10 @@ impl Config {
     ///
     /// Returns `Result<Self, Box<dyn std::error::Error>>` -- this is a common Rust pattern
     /// for CLI tools where the caller only needs to display the error, not match on specific
-    /// variants. `Box<dyn Error>` is a trait object (like Java's `Throwable`) that can hold
-    /// any error type. The `?` operator below automatically converts specific errors (IO,
-    /// JSON parse) into this boxed form and returns early -- similar to a thrown exception,
-    /// but checked at compile time.
+    /// variants. `Box<dyn Error>` is a trait object that can hold any error type. The `?`
+    /// operator below automatically converts specific errors (IO, JSON parse) into this
+    /// boxed form and returns early -- similar to a thrown exception, but checked at
+    /// compile time.
     pub fn load(path: Option<&Path>) -> Result<Self, Box<dyn std::error::Error>> {
         let path = path.unwrap_or_else(|| Path::new("converter.json"));
         let content = std::fs::read_to_string(path)

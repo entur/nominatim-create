@@ -20,6 +20,8 @@ pub(crate) struct MatrikkelAdresse {
     pub grunnkretsnavn: Option<String>,
 }
 
+/// Running aggregation for a street: accumulates UTM33 coordinates across all addresses
+/// on the same street so we can compute an average centroid for the street entry.
 pub(crate) struct StreetAgg {
     pub representative: MatrikkelAdresse,
     pub sum_ost: f64,
@@ -41,6 +43,8 @@ pub(crate) fn parse_csv(input: &Path) -> Result<Vec<MatrikkelAdresse>, Box<dyn s
     for line in reader.lines().skip(1) {
         let line = line?;
         let tokens: Vec<&str> = line.split(';').collect();
+        // Kartverket CSV has 46+ columns; column 3 is address type ("vegadresse" = street address).
+        // Other types (e.g. "matrikkeladresse") are farm-based and excluded.
         if tokens.len() < 46 || tokens[3] != "vegadresse" { continue; }
 
         let nord: f64 = tokens[17].parse().unwrap_or(0.0);

@@ -32,6 +32,9 @@ pub fn convert_all(
     Ok(())
 }
 
+/// Check if a POI is currently valid based on its ValidBetween date range.
+/// Returns true if: no validity period is set, either bound is missing (open-ended),
+/// or the current time falls within the range.
 fn is_valid(tp: &TopographicPlaceXml, now: &NaiveDateTime) -> bool {
     let Some(vb) = &tp.valid_between else { return true };
     let from_ok = vb.from_date.as_ref().is_none_or(|d| {

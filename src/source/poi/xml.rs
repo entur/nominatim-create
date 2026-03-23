@@ -3,6 +3,8 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use serde::Deserialize;
 
+/// NeTEx TopographicPlace with an optional `ValidBetween` period used to filter
+/// out expired or not-yet-active POI entries.
 #[derive(Debug, Deserialize)]
 pub(crate) struct TopographicPlaceXml {
     #[serde(rename = "@id")]

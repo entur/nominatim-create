@@ -14,6 +14,13 @@ use std::path::Path;
 
 use super::parse::*;
 
+/// Convert Kartverket Matrikkel CSV to Nominatim NDJSON in two passes:
+/// 1. Addresses: one entry per address row
+/// 2. Streets: one entry per unique (street name, municipality) pair, with the centroid
+///    averaged from all addresses on that street.
+///
+/// The optional `stedsnavn_gml` provides a kommune→fylke mapping so addresses can
+/// include county (fylke) information. Without it, county fields are omitted.
 pub fn convert_all(
     config: &Config,
     input: &Path,
