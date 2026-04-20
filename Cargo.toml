@@ -1,6 +1,6 @@
 [package]
 name = "nominatim-converter"
-version = "0.3.3"
+version = "0.3.5"
 edition = "2024"
 
 [dependencies]
@@ -8,7 +8,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 quick-xml = { version = "0.39", features = ["serialize"] }
 osmpbf = "0.3"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 proj = { version = "0.31", features = ["bundled_proj"] }
 country-boundaries = "1"

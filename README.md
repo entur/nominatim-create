@@ -72,6 +72,26 @@ export LANTMATERIET_PASS=your_password
 | `-c` | Config file (defaults to `converter.json` in CWD) |
 | `-f` | Force overwrite existing output |
 | `-a` | Append to existing output |
+| `-d` | Cache directory for downloads (see below); also via `NOMINATIM_CACHE_DIR` |
+| `--refresh-cache` | Ignore cache hits and re-download |
+
+### Caching downloads
+
+`-d <DIR>` (or `NOMINATIM_CACHE_DIR`) persists downloaded source files and
+reuses them on subsequent runs. For ZIP sources, the extracted entry is
+cached too. With a warm cache, `belagenhet` runs without `LANTMATERIET_*`.
+
+```bash
+nominatim-converter -d ~/.cache/nominatim-converter osm \
+    -i https://example.com/norway-latest.osm.pbf -o out.ndjson -c converter.json
+```
+
+Rolling URLs like `Current_latest.zip` or `norway-latest.osm.pbf` silently
+serve stale data from the cache. Pass `--refresh-cache` to force a
+re-download. Or just `rm` the cache directory.
+
+The cache directory is created with default umask permissions; use a
+user-owned location, not a shared one.
 
 ## Output format
 

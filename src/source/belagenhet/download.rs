@@ -1,26 +1,34 @@
-use crate::common::input::{download_to_file, extract_from_zip, make_temp_path};
-use std::path::PathBuf;
+use crate::common::input::{CacheOptions, DownloadStream, ResolvedInput, fetch_and_resolve};
 
 const BASE_URL: &str = "https://dl1.lantmateriet.se/adress/belagenhetsadresser";
 
-/// Download belägenhetsadresser GeoPackage for a given municipality.
+/// Download belägenhetsadresser GeoPackage for a given municipality and
+/// extract the `.gpkg` from its ZIP.
 ///
-/// Credentials are read from env vars LANTMATERIET_USER / LANTMATERIET_PASS
-/// (also loaded from .env via dotenvy).
+/// Credentials are read from env vars `LANTMATERIET_USER` / `LANTMATERIET_PASS`
+/// (also loaded from `.env` via dotenvy). With a warm cache, credentials
+/// aren't needed -- the ZIP is reused from disk.
 ///
-/// Returns path to the extracted .gpkg file (caller must clean up).
+/// Returns a `ResolvedInput` whose path points at the extracted `.gpkg`.
+/// Temp files are cleaned up on drop; cached files are preserved.
 pub fn download_municipality(
     kommun_id: &str,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    cache: &CacheOptions,
+) -> Result<ResolvedInput, Box<dyn std::error::Error>> {
+    let url = municipality_url(kommun_id);
+    fetch_and_resolve(&url, Some("*.gpkg"), cache, fetch_with_basic_auth)
+}
+
+/// URL for a single municipality's belägenhetsadresser archive.
+pub(crate) fn municipality_url(kommun_id: &str) -> String {
+    format!("{BASE_URL}/belagenhetsadresser_kn{kommun_id}.zip")
+}
+
+fn fetch_with_basic_auth(url: &str) -> Result<DownloadStream, Box<dyn std::error::Error>> {
     let (user, pass) = load_credentials()?;
+    let encoded = base64_encode(format!("{user}:{pass}").as_bytes());
 
-    let url = format!("{BASE_URL}/belagenhetsadresser_kn{kommun_id}.zip");
-    eprintln!("Downloading {url}...");
-
-    let credentials = format!("{user}:{pass}");
-    let encoded = base64_encode(credentials.as_bytes());
-
-    let response = ureq::get(&url)
+    let response = ureq::get(url)
         .header("Authorization", &format!("Basic {encoded}"))
         .call()
         .map_err(|e| {
@@ -33,18 +41,16 @@ pub fn download_municipality(
             }
         })?;
 
-    let content_length = response.headers().get("content-length")
+    let content_length = response
+        .headers()
+        .get("content-length")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok());
 
-    // Save ZIP to temp file, then extract .gpkg
-    let zip_path = make_temp_path("zip");
-    download_to_file(response.into_body().into_reader(), &zip_path, content_length)?;
-
-    let gpkg_path = extract_from_zip(&zip_path, Some("*.gpkg"))?;
-    std::fs::remove_file(&zip_path).ok();
-
-    Ok(gpkg_path)
+    Ok(DownloadStream::new(
+        Box::new(response.into_body().into_reader()),
+        content_length,
+    ))
 }
 
 fn load_credentials() -> Result<(String, String), Box<dyn std::error::Error>> {

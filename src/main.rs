@@ -10,14 +10,27 @@ mod source;
 mod target;
 
 use clap::{Parser, Subcommand};
-use common::input::{cleanup_input, resolve_input};
+use common::input::{CACHE_DIR_ENV, CacheOptions, ResolvedInput, is_cached, resolve_input};
 use common::norwegian_counties;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Parser)]
 #[command(name = "nominatim-converter", about = "Convert geographic data to Nominatim NDJSON")]
 struct Cli {
+    /// Cache downloaded source files under this directory and reuse them on
+    /// subsequent runs. Works with every subcommand that fetches a URL.
+    /// Reads from `NOMINATIM_CACHE_DIR` if the flag is not given.
+    #[arg(short = 'd', long, value_name = "DIR", global = true, env = CACHE_DIR_ENV)]
+    cache_dir: Option<PathBuf>,
+
+    /// Ignore existing cache entries and re-download. Useful for rolling URLs
+    /// like `Current_latest.zip` or `norway-latest.osm.pbf` that re-publish
+    /// under the same name; without this, a warm cache will serve stale data.
+    /// Requires `--cache-dir` (or `NOMINATIM_CACHE_DIR`) to be set.
+    #[arg(long, global = true, requires = "cache_dir")]
+    refresh_cache: bool,
+
     #[command(subcommand)]
     action: Action,
 }
@@ -160,10 +173,11 @@ fn main() {
     // Load .env file for credentials (Lantmäteriet etc.) -- once, before any subcommand runs.
     dotenvy::dotenv().ok();
 
-    let cli = Cli::parse();
+    let Cli { cache_dir, refresh_cache, action } = Cli::parse();
+    let cache = CacheOptions::new(cache_dir.as_deref(), refresh_cache);
 
-    let result = match cli.action {
-        Action::Stopplace(args) => run_conversion("StopPlace", args, Some("*.xml"), |cfg, input, output, append| {
+    let result = match action {
+        Action::Stopplace(args) => run_conversion("StopPlace", args, Some("*.xml"), &cache, |cfg, input, output, append| {
             source::stopplace::convert(cfg, input, output, append)
         }),
         Action::Matrikkel(args) => {
@@ -197,9 +211,8 @@ fn main() {
                 std::process::exit(1);
             };
 
-            let gml_resolved = gml_source.as_ref().map(|g| resolve_input(g, Some("*.gml")));
-            let gml_result = match gml_resolved {
-                Some(Ok((path, is_temp))) => Some((path, is_temp)),
+            let gml_resolved = match gml_source.as_ref().map(|g| resolve_input(g, Some("*.gml"), &cache)) {
+                Some(Ok(r)) => Some(r),
                 Some(Err(e)) => {
                     eprintln!("Error resolving GML input: {e}");
                     std::process::exit(1);
@@ -215,18 +228,13 @@ fn main() {
                 force: args.force,
             };
 
-            let gml_path = gml_result.as_ref().map(|(p, _)| p.as_path());
-            let result = run_conversion("Matrikkel", convert_args, Some("*.csv"), |cfg, input, output, append| {
+            let gml_path = gml_resolved.as_ref().map(ResolvedInput::path);
+            run_conversion("Matrikkel", convert_args, Some("*.csv"), &cache, |cfg, input, output, append| {
                 source::matrikkel::convert(cfg, input, output, append, gml_path)
-            });
-
-            if let Some((path, is_temp)) = gml_result {
-                cleanup_input(&path, is_temp);
-            }
-
-            result
+            })
+            // gml_resolved drops here; if temp, its file is cleaned up automatically.
         }
-        Action::Osm(args) => run_conversion("OSM PBF", args, None, |cfg, input, output, append| {
+        Action::Osm(args) => run_conversion("OSM PBF", args, None, &cache, |cfg, input, output, append| {
             source::osm::convert(cfg, input, output, append)
         }),
         Action::Stedsnavn(args) => {
@@ -253,11 +261,11 @@ fn main() {
                 append: args.append,
                 force: args.force,
             };
-            run_conversion("Stedsnavn", convert_args, Some("*.gml"), |cfg, input, output, append| {
+            run_conversion("Stedsnavn", convert_args, Some("*.gml"), &cache, |cfg, input, output, append| {
                 source::stedsnavn::convert(cfg, input, output, append)
             })
         }
-        Action::Poi(args) => run_conversion("POI", args, None, |cfg, input, output, append| {
+        Action::Poi(args) => run_conversion("POI", args, None, &cache, |cfg, input, output, append| {
             source::poi::convert(cfg, input, output, append)
         }),
         Action::Belagenhet(args) => {
@@ -267,10 +275,16 @@ fn main() {
             }
             preflight_check(args.config.as_ref(), args.output.as_ref(), args.force, args.append);
             if let Some(ref municipalities) = args.municipality {
-                preflight_check_credentials("LANTMATERIET_USER");
-                preflight_check_credentials("LANTMATERIET_PASS");
                 let codes = resolve_municipality_codes(municipalities);
-                run_belagenhet_download(&args, &codes)
+                // Credentials are only needed when any municipality will hit
+                // the network: no cache dir, or --refresh-cache, or at least
+                // one municipality isn't cached yet. Checking ahead of time
+                // means users with a fully warm cache don't need creds.
+                if needs_belagenhet_credentials(&cache, &codes) {
+                    preflight_check_credentials("LANTMATERIET_USER");
+                    preflight_check_credentials("LANTMATERIET_PASS");
+                }
+                run_belagenhet_download(&args, &codes, &cache)
             } else {
                 let input = args.input.as_ref().unwrap_or_else(|| {
                     eprintln!("Error: belagenhet requires either -i <file.gpkg> or -m <municipality_code>");
@@ -283,7 +297,7 @@ fn main() {
                     append: args.append,
                     force: args.force,
                 };
-                run_conversion("Belägenhetsadress", convert_args, Some("*.gpkg"), |cfg, input, output, append| {
+                run_conversion("Belägenhetsadress", convert_args, Some("*.gpkg"), &cache, |cfg, input, output, append| {
                     source::belagenhet::convert(cfg, input, output, append)
                 })
             }
@@ -334,14 +348,29 @@ fn preflight_check_credentials(env_var: &str) {
     }
 }
 
+/// Decide whether any Lantmäteriet download will actually hit the network.
+/// False only when every requested municipality already has a cache entry
+/// and we aren't asked to refresh -- i.e., a fully warm cache run that
+/// needs no auth.
+fn needs_belagenhet_credentials(cache: &CacheOptions, codes: &[String]) -> bool {
+    if cache.dir().is_none() || cache.is_refresh() {
+        return true;
+    }
+    codes.iter().any(|code| {
+        let url = source::belagenhet::download::municipality_url(code);
+        !is_cached(&url, cache)
+    })
+}
+
 fn run_conversion<F>(
     name: &str,
     args: ConvertArgs,
     extract_glob: Option<&str>,
+    cache: &CacheOptions,
     convert_fn: F,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnOnce(&config::Config, &std::path::Path, &std::path::Path, bool) -> Result<(), Box<dyn std::error::Error>>,
+    F: FnOnce(&config::Config, &Path, &Path, bool) -> Result<(), Box<dyn std::error::Error>>,
 {
     let cfg = config::Config::load(args.config.as_deref())?;
 
@@ -361,15 +390,12 @@ where
         }
     }
 
-    let (input, is_temp) = resolve_input(&args.input, extract_glob)?;
+    let input = resolve_input(&args.input, extract_glob, cache)?;
 
     eprintln!("Starting {name} conversion...");
     let start = Instant::now();
-    let result = convert_fn(&cfg, &input, output, args.append);
-
-    cleanup_input(&input, is_temp);
-
-    result?;
+    convert_fn(&cfg, input.path(), output, args.append)?;
+    // `input` drops here; temp files are removed automatically.
 
     let duration = start.elapsed().as_secs_f64();
     let size_mb = std::fs::metadata(output).map(|m| m.len() as f64 / (1024.0 * 1024.0)).unwrap_or(0.0);
@@ -381,6 +407,7 @@ where
 fn run_belagenhet_download(
     args: &BelagenhetArgs,
     municipalities: &[String],
+    cache: &CacheOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = config::Config::load(args.config.as_deref())?;
     let output = args.output.as_ref().expect("output required for download");
@@ -404,12 +431,10 @@ fn run_belagenhet_download(
     for (i, kommun_id) in municipalities.iter().enumerate() {
         eprintln!("Processing municipality {kommun_id} ({}/{})...", i + 1, municipalities.len());
 
-        let gpkg_path = source::belagenhet::download::download_municipality(kommun_id)?;
+        let gpkg = source::belagenhet::download::download_municipality(kommun_id, cache)?;
         let appending = !is_first;
-
-        source::belagenhet::convert(&cfg, &gpkg_path, output, appending)?;
-
-        std::fs::remove_file(&gpkg_path).ok();
+        source::belagenhet::convert(&cfg, gpkg.path(), output, appending)?;
+        // `gpkg` drops here; temp files cleaned up, cached files preserved.
         is_first = false;
     }
 
