@@ -210,8 +210,8 @@ impl OsmConverter {
         let reader = ElementReader::from_path(input)?;
         reader.for_each(|element| {
             match element {
-                Element::Node(node) => {
-                    if needed_node_ids.contains(&node.id()) {
+                Element::Node(node)
+                    if needed_node_ids.contains(&node.id()) => {
                         nodes_coords.put(
                             node.id(),
                             Coordinate {
@@ -220,9 +220,8 @@ impl OsmConverter {
                             },
                         );
                     }
-                }
-                Element::DenseNode(node) => {
-                    if needed_node_ids.contains(&node.id) {
+                Element::DenseNode(node)
+                    if needed_node_ids.contains(&node.id) => {
                         nodes_coords.put(
                             node.id,
                             Coordinate {
@@ -231,7 +230,6 @@ impl OsmConverter {
                             },
                         );
                     }
-                }
                 _ => {}
             }
         })?;

@@ -53,14 +53,13 @@ pub(crate) fn parse_topographic_places(xml: &str) -> Result<Vec<TopographicPlace
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => {
-                if e.name().as_ref() == b"TopographicPlace" {
+            Ok(Event::Start(ref e))
+                if e.name().as_ref() == b"TopographicPlace" => {
                     let text = crate::source::stopplace::read_element_as_string(&mut reader, "TopographicPlace", e)?;
                     if let Ok(tp) = from_str::<TopographicPlaceXml>(&text) {
                         places.push(tp);
                     }
                 }
-            }
             Ok(Event::Eof) => break,
             Err(e) => return Err(Box::new(e)),
             _ => {}

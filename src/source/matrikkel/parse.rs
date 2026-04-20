@@ -115,11 +115,10 @@ pub(crate) fn build_kommune_mapping(gml_path: &Path) -> Result<HashMap<String, K
                     _ => {}
                 }
             }
-            Ok(Event::Text(ref e)) => {
-                if current_field.is_some() {
+            Ok(Event::Text(ref e))
+                if current_field.is_some() => {
                     text_buf.extend_from_slice(e.as_ref());
                 }
-            }
             Ok(Event::End(ref e)) => {
                 if let Some(field) = current_field {
                     let text = String::from_utf8_lossy(&text_buf).trim().to_string();
