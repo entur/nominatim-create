@@ -18,14 +18,24 @@ impl ImportanceCalculator {
 
     /// Normalize popularity to Photon importance (0-1 range) using log10 normalization.
     pub fn calculate_importance(&self, popularity: f64) -> f64 {
+        round6(self.scaled_importance(popularity).clamp(self.config.floor, 1.0))
+    }
+
+    /// Like [`Self::calculate_importance`] but without the upper clamp at 1.0. Used for entries
+    /// (e.g. GroupOfStopPlaces) whose popularity grows multiplicatively past `maxPopularity` and
+    /// where downstream Photon scoring (which has no implicit cap) needs them to dominate the
+    /// importance band so far-away major cities can outrank near-focus streets sharing the same
+    /// name prefix. Caller typically multiplies the result by a category-specific factor.
+    pub fn calculate_importance_unclamped(&self, popularity: f64) -> f64 {
+        round6(self.scaled_importance(popularity).max(self.config.floor))
+    }
+
+    fn scaled_importance(&self, popularity: f64) -> f64 {
         let log_pop = popularity.log10();
         let log_min = self.config.min_popularity.log10();
         let log_max = self.config.max_popularity.log10();
-
         let normalized = (log_pop - log_min) / (log_max - log_min);
-        let scaled = self.config.floor + (normalized * (1.0 - self.config.floor));
-
-        round6(scaled.clamp(self.config.floor, 1.0))
+        self.config.floor + (normalized * (1.0 - self.config.floor))
     }
 }
 
@@ -93,5 +103,25 @@ mod tests {
         let calc = ImportanceCalculator::new(&prod_config());
         let imp = calc.calculate_importance(20.0);
         assert_eq!(imp, 0.230103);
+    }
+
+    #[test]
+    fn test_unclamped_below_min_still_clamps_to_floor() {
+        let calc = ImportanceCalculator::new(&prod_config());
+        assert_eq!(calc.calculate_importance_unclamped(0.1), 0.1);
+    }
+
+    #[test]
+    fn test_unclamped_above_max_exceeds_one() {
+        let calc = ImportanceCalculator::new(&prod_config());
+        // log10(1e14)=14, normalized=14/9=1.555..., scaled=0.1+1.555...*0.9=1.5
+        let imp = calc.calculate_importance_unclamped(1e14);
+        assert_eq!(imp, 1.5);
+    }
+
+    #[test]
+    fn test_unclamped_at_max_matches_clamped() {
+        let calc = ImportanceCalculator::new(&prod_config());
+        assert_eq!(calc.calculate_importance_unclamped(1_000_000_000.0), 1.0);
     }
 }

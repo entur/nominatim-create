@@ -84,7 +84,22 @@ pub struct GroupOfStopPlacesConfig {
     pub gos_boost_factor: f64,
     #[serde(rename = "rankAddress")]
     pub rank_address: i32,
+    /// Multiplier applied on top of the unclamped importance for GoSPs in [`Self::home_country`].
+    /// Lifts major-city groups above the 0-1 importance band so they can outrank near-focus
+    /// streets that share the same name prefix (e.g. "Bergen" vs "Bergensgata" when searching
+    /// from Oslo). Photon stores importance as a plain double, so values above 1.0 contribute
+    /// proportionally more to the final score. GoSPs outside the home country use the regular
+    /// clamped importance, which keeps long-distance bus terminals like Berlin ZOB from
+    /// outranking Norwegian cities.
+    #[serde(rename = "importanceMultiplier", default = "default_gosp_importance_multiplier")]
+    pub importance_multiplier: f64,
+    /// ISO 3166-1 alpha-2 (lowercase) for the country whose GoSPs receive the importance boost.
+    #[serde(rename = "homeCountry", default = "default_gosp_home_country")]
+    pub home_country: String,
 }
+
+fn default_gosp_importance_multiplier() -> f64 { 1.0 }
+fn default_gosp_home_country() -> String { "no".to_string() }
 
 #[derive(Deserialize, Clone)]
 pub struct BelagenhetConfig {

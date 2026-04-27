@@ -352,8 +352,20 @@ pub(crate) fn convert_gosp(
         resolve_gosp_geography(gosp, topo_places, stop_places);
 
     let gos_pop = calculate_gosp_popularity(config, gosp, stop_popularities);
-    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(gos_pop));
     let country = geo::get_country(&coord).unwrap_or_else(Country::no);
+    // GoSP popularity grows multiplicatively with member count and easily exceeds
+    // `importance.maxPopularity`. For home-country GoSPs we use the unclamped variant and
+    // apply the configured multiplier so major Norwegian cities (Bergen, Trondheim) outrank
+    // near-focus streets that share the same name prefix. Foreign GoSPs (e.g. NSR's Berlin ZOB
+    // entry for international bus routes) keep the clamped 0-1 importance so they don't
+    // outrank Norwegian cities for users searching in Norway.
+    let raw_importance = if country.name == config.group_of_stop_places.home_country {
+        importance_calc.calculate_importance_unclamped(gos_pop)
+            * config.group_of_stop_places.importance_multiplier
+    } else {
+        importance_calc.calculate_importance(gos_pop)
+    };
+    let importance = RawNumber::from_f64_6dp(raw_importance);
 
     let visible_cats = vec![
         OSM_GOSP.to_string(),
