@@ -27,7 +27,7 @@ pub(crate) mod test_helpers {
                 "stopTypeFactors": { "busStation": 2.0, "metroStation": 2.0, "railStation": 2.0 },
                 "interchangeFactors": { "recommendedInterchange": 3.0, "preferredInterchange": 10.0 }
             },
-            "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+            "groupOfStopPlaces": { "rankAddress": 30 },
             "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
         }"#).unwrap()
     }
@@ -57,7 +57,7 @@ pub(crate) mod test_helpers {
                 "stopTypeFactors": { "busStation": 2.0, "metroStation": 2.0, "railStation": 2.0 },
                 "interchangeFactors": { "recommendedInterchange": 3.0, "preferredInterchange": 10.0 }
             },
-            "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+            "groupOfStopPlaces": { "rankAddress": 30 },
             "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
         }"#).unwrap()
     }

@@ -161,41 +161,5 @@ mod tests {
         assert_eq!(pop, (config.stop_place.default_value as f64 * 6.0) as i64);
     }
 
-    // ===== GroupOfStopPlaces popularity tests =====
-
-    #[test]
-    fn gosp_single_member_boosted() {
-        let config = test_config();
-        let pop = config.group_of_stop_places.gos_boost_factor * 60.0;
-        assert_eq!(pop, 600.0);
-    }
-
-    #[test]
-    fn gosp_two_members_multiplies() {
-        let config = test_config();
-        let pop = config.group_of_stop_places.gos_boost_factor * (60.0 * 60.0);
-        assert_eq!(pop, 36000.0);
-    }
-
-    #[test]
-    fn gosp_empty_returns_boost_factor() {
-        let config = test_config();
-        // Empty fold: 1.0 * boost
-        let pops: Vec<i64> = vec![];
-        let result = if pops.is_empty() {
-            config.group_of_stop_places.gos_boost_factor
-        } else {
-            config.group_of_stop_places.gos_boost_factor * pops.iter().fold(1.0, |acc, &p| acc * p as f64)
-        };
-        assert_eq!(result, 10.0);
-    }
-
-    #[test]
-    fn gosp_realistic_oslo_scenario() {
-        let config = test_config();
-        let member_pops: Vec<i64> = vec![600, 60, 60];
-        let pop = config.group_of_stop_places.gos_boost_factor
-            * member_pops.iter().fold(1.0, |acc, &p| acc * p as f64);
-        assert_eq!(pop, 21_600_000.0);
-    }
+    // GoSP popularity is exercised end-to-end by the integration tests in convert.rs.
 }

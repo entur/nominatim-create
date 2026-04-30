@@ -99,8 +99,6 @@ pub struct StopPlaceConfig {
 
 #[derive(Deserialize, Clone)]
 pub struct GroupOfStopPlacesConfig {
-    #[serde(rename = "gosBoostFactor")]
-    pub gos_boost_factor: f64,
     #[serde(rename = "rankAddress")]
     pub rank_address: i32,
     /// Multiplier applied on top of the unclamped importance for GoSPs in [`Self::home_country`].
@@ -174,7 +172,7 @@ mod tests {
             "stopTypeFactors": { "busStation": 2.0 },
             "interchangeFactors": { "preferredInterchange": 10.0 }
         },
-        "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+        "groupOfStopPlaces": { "rankAddress": 30 },
         "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
     }"#;
 

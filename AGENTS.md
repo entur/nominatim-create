@@ -47,7 +47,7 @@ nominatim-converter --usage popular-stops-fra.csv stopplace -i stops.xml -o stop
 
 When `--usage` is set, output **deliberately diverges** from the original Java converter for any boosted entity. Do not use `compare-ndjson.py` against the Java baseline as a regression check in that mode - importance values will differ. Without `--usage`, output remains bit-identical and the comparison still applies.
 
-GoSP popularity grows multiplicatively from member popularities, so member-level boosts compound. The `gosBoostFactor` in `converter.example.json` is now `3.0` (down from `10.0`) to leave headroom for usage-driven differentiation; retune downward further if real-world output shows GoSPs over-dominating.
+GoSP popularity is the product of its member stops' (boosted) popularities, then run through `ImportanceCalculator::calculate_importance_unclamped` and scaled by `groupOfStopPlaces.importanceMultiplier`. The unclamped + multiplier path is what lifts cities above the 0-1 ceiling so they outrank near-focus streets sharing a name prefix.
 
 ### Coordinate conversions have inherent precision differences
 
@@ -134,7 +134,7 @@ This converter produces `nominatim.ndjson` which is imported into the **Photon g
 
 All source converters have unit tests (`cargo test --release` runs ~240 tests). Coverage by module:
 
-1. **stopplace** (38 tests): NeTEx parsing, popularity calculation (base × type factors × interchange), GroupOfStopPlaces boost (gosBoostFactor × product of member popularities), transport mode formatting (mode:submode, parent collecting children with dedup), alt name handling (label → visible, translation → indexed only), category generation (funicular included, bus excluded, multimodal.parent marker), tariff zone ordering, full conversion integration tests (coordinates, authority categories, county_gid/locality_gid)
+1. **stopplace** (38 tests): NeTEx parsing, popularity calculation (base × type factors × interchange), GroupOfStopPlaces popularity (product of member popularities), transport mode formatting (mode:submode, parent collecting children with dedup), alt name handling (label → visible, translation → indexed only), category generation (funicular included, bus excluded, multimodal.parent marker), tariff zone ordering, full conversion integration tests (coordinates, authority categories, county_gid/locality_gid)
 2. **stedsnavn** (22 tests): Target type recognition (by/bydel/tettsted/tettsteddel/tettbebyggelse), spelling status filtering (vedtatt/godkjent/privat/samlevedtak accepted), GML parsing with historisk alt spelling, diacritics preservation, field validation (source, accuracy, country_code, importance, rank_address), locality/county GID format, coordinate ranges, titleized names
 3. **matrikkel** (12 tests): CSV→NDJSON conversion, field validation (id, source, accuracy, country_a, locality, borough, housenumber with letter suffix), county population via stedsnavn GML, address + street entry generation, category correctness, coordinate validity, importance range, county GID in categories
 4. **poi** (7 tests): ValidBetween date filtering (valid/expired/future/always-valid/open-ended), coordinate and category correctness

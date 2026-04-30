@@ -355,7 +355,7 @@ pub(crate) fn convert_gosp(
     let (locality, locality_gid, county, county_gid) =
         resolve_gosp_geography(gosp, topo_places, stop_places);
 
-    let gos_pop = calculate_gosp_popularity(config, gosp, stop_popularities);
+    let gos_pop = calculate_gosp_popularity(gosp, stop_popularities);
     let country = geo::get_country(&coord).unwrap_or_else(Country::no);
     // GoSP popularity grows multiplicatively with member count and easily exceeds
     // `importance.maxPopularity`. For home-country GoSPs we use the unclamped variant and
@@ -453,19 +453,16 @@ fn resolve_gosp_geography(
     (locality, locality_gid, county, county_gid)
 }
 
+/// GoSP popularity is the product of its members' popularities. Empty product is 1.0,
+/// which lands on the importance floor for GoSPs whose members couldn't be resolved.
 fn calculate_gosp_popularity(
-    config: &Config,
     gosp: &GroupOfStopPlacesXml,
     stop_popularities: &HashMap<String, i64>,
 ) -> f64 {
-    let member_pops: Vec<i64> = gosp.members.as_ref().map(|m| {
-        m.refs.iter().filter_map(|r| stop_popularities.get(&r.ref_).copied()).collect()
-    }).unwrap_or_default();
-    if member_pops.is_empty() {
-        config.group_of_stop_places.gos_boost_factor
-    } else {
-        config.group_of_stop_places.gos_boost_factor * member_pops.iter().fold(1.0, |acc, &p| acc * p as f64)
-    }
+    let Some(members) = gosp.members.as_ref() else { return 1.0 };
+    members.refs.iter()
+        .filter_map(|r| stop_popularities.get(&r.ref_).copied())
+        .fold(1.0, |acc, p| acc * p as f64)
 }
 
 fn determine_country(
