@@ -4,6 +4,7 @@ use crate::common::extra::Extra;
 use crate::common::geo;
 use crate::common::importance::ImportanceCalculator;
 use crate::common::text::join_osm_values;
+use crate::common::usage::UsageBoost;
 use crate::common::util::titleize;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
@@ -19,8 +20,9 @@ pub fn convert_all(
     input: &Path,
     output: &Path,
     is_appending: bool,
+    usage: &UsageBoost,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let importance_calc = ImportanceCalculator::new(&config.importance);
+    let importance_calc = ImportanceCalculator::new(&config.importance, usage);
 
     let all_addresses = parse_gpkg(input)?;
 
@@ -100,7 +102,9 @@ fn convert_address(
     if let Some(gid) = &c_gid { indexed_cats.push(county_ids_category(gid)); }
     if let Some(gid) = &l_gid { indexed_cats.push(locality_ids_category(gid)); }
 
-    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.belagenhet.address_popularity));
+    let importance = RawNumber::from_f64_6dp(
+        importance_calc.calculate_importance_for(&id, config.belagenhet.address_popularity)
+    );
 
     let postort = addr.postort.as_deref().unwrap_or("");
 
@@ -172,7 +176,9 @@ fn convert_street(
     if let Some(gid) = &c_gid { indexed_cats.push(county_ids_category(gid)); }
     if let Some(gid) = &l_gid { indexed_cats.push(locality_ids_category(gid)); }
 
-    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.belagenhet.street_popularity));
+    let importance = RawNumber::from_f64_6dp(
+        importance_calc.calculate_importance_for(&id, config.belagenhet.street_popularity)
+    );
 
     let postort = addr.postort.as_deref().unwrap_or("");
 

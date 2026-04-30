@@ -6,6 +6,7 @@ use crate::common::geo;
 use crate::common::importance::ImportanceCalculator;
 use crate::common::text::{join_osm_values, OSM_TAG_SEPARATOR};
 use crate::common::translator;
+use crate::common::usage::UsageBoost;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
 use crate::target::nominatim_id::as_place_id;
@@ -21,10 +22,11 @@ pub fn convert_all(
     input: &Path,
     output: &Path,
     is_appending: bool,
+    usage: &UsageBoost,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let xml = std::fs::read_to_string(input)?;
     let result = parse_netex(&xml)?;
-    let importance_calc = ImportanceCalculator::new(&config.importance);
+    let importance_calc = ImportanceCalculator::new(&config.importance, usage);
 
     // Build child stop types map (parentRef -> list of child stopPlaceTypes)
     let mut stop_place_types: HashMap<String, Vec<String>> = HashMap::new();
@@ -37,10 +39,12 @@ pub fn convert_all(
         }
     }
 
-    // Calculate popularities
+    // Calculate popularities. The optional usage boost nudges popular stops upward;
+    // GoSPs inherit the signal automatically through the member-product propagation
+    // in `calculate_gosp_popularity` so they don't need a separate lookup.
     let stop_popularities: HashMap<String, i64> = result.stop_places.iter().map(|sp| {
         let child_types = stop_place_types.get(&sp.id).cloned().unwrap_or_default();
-        let pop = calculate_stop_popularity(&config.stop_place, sp, &child_types);
+        let pop = calculate_stop_popularity(&config.stop_place, sp, &child_types, usage.factor(&sp.id));
         (sp.id.clone(), pop)
     }).collect();
 
@@ -526,6 +530,9 @@ mod tests {
     use super::*;
     use super::super::tests::helpers::*;
 
+    static EMPTY_USAGE: std::sync::LazyLock<UsageBoost> =
+        std::sync::LazyLock::new(UsageBoost::empty);
+
     // ===== Transport mode formatting tests =====
 
     #[test]
@@ -614,7 +621,7 @@ mod tests {
     #[test]
     fn funicular_transport_mode_included_in_categories() {
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
         let sp = make_stop_place("NSR:StopPlace:1", "Test", Some("funicular"), Some("other"));
         let result = convert_stop_place(
             &config, &importance_calc, &sp, &HashMap::new(), &HashMap::new(),
@@ -628,7 +635,7 @@ mod tests {
     #[test]
     fn bus_transport_mode_not_in_categories() {
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
         let sp = make_stop_place("NSR:StopPlace:1", "Test", Some("bus"), Some("onstreetBus"));
         let result = convert_stop_place(
             &config, &importance_calc, &sp, &HashMap::new(), &HashMap::new(),
@@ -642,7 +649,7 @@ mod tests {
     #[test]
     fn parent_stop_includes_child_types_and_multimodal_category() {
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
         let sp = make_stop_place("NSR:StopPlace:Parent", "Hub", Some("funicular"), Some("other"));
         let mut child_types_map: HashMap<String, Vec<String>> = HashMap::new();
         child_types_map.insert("NSR:StopPlace:Parent".to_string(),
@@ -666,7 +673,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("stopPlaces.xml");
         let output = std::env::temp_dir().join("test_stopplace_convert_output.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let content = std::fs::read_to_string(&output).unwrap();
         assert!(content.contains("NominatimDumpFile"));
         assert!(content.contains("NSR:StopPlace:56697"));
@@ -678,7 +685,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("stopPlaces.xml");
         let output = std::env::temp_dir().join("test_gosp_convert_output.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let content = std::fs::read_to_string(&output).unwrap();
         assert!(content.contains("NSR:GroupOfStopPlaces:1"));
         assert!(content.contains("NSR:GroupOfStopPlaces:72"));
@@ -692,7 +699,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("stopPlaces.xml");
         let output = std::env::temp_dir().join("test_convert_valid_json.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let lines: Vec<String> = std::fs::read_to_string(&output).unwrap().lines().map(String::from).collect();
         assert!(!lines.is_empty());
         for line in &lines {
@@ -707,7 +714,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("stopPlaces.xml");
         let output = std::env::temp_dir().join("test_convert_coords.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let lines: Vec<String> = std::fs::read_to_string(&output).unwrap().lines()
             .filter(|l| l.contains("NSR:StopPlace:"))
             .map(String::from).collect();
@@ -723,7 +730,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("stopPlaces.xml");
         let output = std::env::temp_dir().join("test_convert_authority.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let content = std::fs::read_to_string(&output).unwrap();
         assert!(content.contains("fare_zone_authority.FIN.Authority.FIN_ID"));
         assert!(content.contains("fare_zone_authority.RUT.Authority.RUT_ID"));
@@ -735,7 +742,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("stopPlaces.xml");
         let output = std::env::temp_dir().join("test_convert_transport_mode.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let content = std::fs::read_to_string(&output).unwrap();
         assert!(content.contains("\"transport_mode\":\"bus:localBus\""));
         let _ = std::fs::remove_file(&output);
@@ -746,10 +753,43 @@ mod tests {
         let config = test_config();
         let input = test_data_path("stopPlaces.xml");
         let output = std::env::temp_dir().join("test_convert_gid.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let content = std::fs::read_to_string(&output).unwrap();
         assert!(content.contains("county_gid.KVE"));
         assert!(content.contains("locality_gid.KVE"));
         let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn usage_csv_lifts_named_stop_importance() {
+        let config = test_config();
+        let input = test_data_path("stopPlaces.xml");
+
+        let baseline_out = std::env::temp_dir().join("test_usage_baseline.ndjson");
+        convert_all(&config, &input, &baseline_out, false, &UsageBoost::empty()).unwrap();
+        let baseline = std::fs::read_to_string(&baseline_out).unwrap();
+        let _ = std::fs::remove_file(&baseline_out);
+
+        let csv = std::env::temp_dir().join("test_usage_boost_input.csv");
+        std::fs::write(&csv, "id;name;usage\nNSR:StopPlace:56697;Oslo S;5000000\n").unwrap();
+        let usage = UsageBoost::load(Some(&csv), &crate::config::UsageConfig::default()).unwrap();
+        let boosted_out = std::env::temp_dir().join("test_usage_boosted.ndjson");
+        convert_all(&config, &input, &boosted_out, false, &usage).unwrap();
+        let boosted = std::fs::read_to_string(&boosted_out).unwrap();
+        let _ = std::fs::remove_file(&boosted_out);
+        let _ = std::fs::remove_file(&csv);
+
+        let pick = |s: &str| -> f64 {
+            let line = s.lines()
+                .find(|l| l.contains("\"place_id\"") && l.contains("NSR:StopPlace:56697"))
+                .expect("stop in output");
+            let key = "\"importance\":";
+            let i = line.find(key).expect("importance field") + key.len();
+            let rest = &line[i..];
+            let end = rest.find(|c: char| c != '.' && !c.is_ascii_digit()).unwrap_or(rest.len());
+            rest[..end].parse().unwrap()
+        };
+        assert!(pick(&boosted) > pick(&baseline),
+            "boosted importance {} should exceed baseline {}", pick(&boosted), pick(&baseline));
     }
 }

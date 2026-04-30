@@ -5,6 +5,7 @@ use crate::common::extra::Extra;
 use crate::common::geo;
 use crate::common::importance::ImportanceCalculator;
 use crate::common::text::join_osm_values;
+use crate::common::usage::UsageBoost;
 use crate::common::util::titleize;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
@@ -22,8 +23,9 @@ pub fn convert_all(
     input: &Path,
     output: &Path,
     is_appending: bool,
+    usage: &UsageBoost,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let importance_calc = ImportanceCalculator::new(&config.importance);
+    let importance_calc = ImportanceCalculator::new(&config.importance, usage);
     let mut writer = JsonWriter::open(output, is_appending)?;
 
     let file = std::fs::File::open(input)?;
@@ -84,7 +86,9 @@ pub(crate) fn convert_to_nominatim(entry: &StedsnavnEntry, config: &Config, impo
     let mut indexed_alt = visible_alt.clone();
     indexed_alt.push(entry.lokal_id.clone());
 
-    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.stedsnavn.default_value));
+    let importance = RawNumber::from_f64_6dp(
+        importance_calc.calculate_importance_for(&entry.lokal_id, config.stedsnavn.default_value)
+    );
     NominatimPlace {
         type_: "Place".to_string(),
         content: vec![PlaceContent {
@@ -131,6 +135,9 @@ mod tests {
     use super::*;
     use super::super::gml::{TARGET_TYPES, ACCEPTED_STATUS, parse_gml};
     use crate::source::test_helpers::{test_config, test_data_path};
+
+    static EMPTY_USAGE: std::sync::LazyLock<UsageBoost> =
+        std::sync::LazyLock::new(UsageBoost::empty);
 
     // ===== Place type tests =====
 
@@ -188,7 +195,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("bydel.gml");
         let output = std::env::temp_dir().join("test_bydel_output.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let content = std::fs::read_to_string(&output).unwrap();
         assert!(content.contains("Grünerløkka"));
         let lines: Vec<&str> = content.lines().collect();
@@ -201,7 +208,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         let entry_with_alt = entries.iter().find(|e| !e.annen_skrivemaate.is_empty());
         assert!(entry_with_alt.is_some(), "Should have entry with annenSkrivemåte");
@@ -217,7 +224,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -230,7 +237,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -243,7 +250,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -256,7 +263,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -269,7 +276,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -283,7 +290,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -296,7 +303,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -313,7 +320,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -331,7 +338,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("bydel.gml");
         let output = std::env::temp_dir().join("test_stedsnavn_gid.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let lines: Vec<String> = std::fs::read_to_string(&output).unwrap()
             .lines().skip(1).map(String::from).collect();
         assert!(lines.iter().any(|l| l.contains("county_gid.KVE") && l.contains("locality_gid.KVE")));
@@ -343,7 +350,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);
@@ -359,7 +366,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("bydel.gml");
         let output = std::env::temp_dir().join("test_stedsnavn_header.ndjson");
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let first_line = std::fs::read_to_string(&output).unwrap().lines().next().unwrap().to_string();
         assert!(first_line.contains("NominatimDumpFile"));
         assert!(first_line.contains("version"));
@@ -387,7 +394,7 @@ mod tests {
         let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
         let entries = parse_gml(&xml).unwrap();
         let config = test_config();
-        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let importance_calc = ImportanceCalculator::new(&config.importance, &EMPTY_USAGE);
 
         for entry in &entries {
             let place = convert_to_nominatim(entry, &config, &importance_calc);

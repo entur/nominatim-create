@@ -3,6 +3,7 @@ use crate::common::coordinate::Coordinate;
 use crate::common::country::Country;
 use crate::common::extra::Extra;
 use crate::common::geo;
+use crate::common::usage::UsageBoost;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
 use crate::target::nominatim_id::as_place_id;
@@ -17,6 +18,7 @@ pub fn convert_all(
     input: &Path,
     output: &Path,
     is_appending: bool,
+    usage: &UsageBoost,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let xml = std::fs::read_to_string(input)?;
     let topo_places = parse_topographic_places(&xml)?;
@@ -25,7 +27,7 @@ pub fn convert_all(
     let entries: Vec<NominatimPlace> = topo_places
         .into_iter()
         .filter(|tp| is_valid(tp, &now))
-        .filter_map(|tp| convert_topo_place(config, &tp))
+        .filter_map(|tp| convert_topo_place(config, &tp, usage))
         .collect();
 
     JsonWriter::export(&entries, output, is_appending)?;
@@ -46,7 +48,7 @@ fn is_valid(tp: &TopographicPlaceXml, now: &NaiveDateTime) -> bool {
     from_ok && to_ok
 }
 
-fn convert_topo_place(config: &Config, tp: &TopographicPlaceXml) -> Option<NominatimPlace> {
+fn convert_topo_place(config: &Config, tp: &TopographicPlaceXml, usage: &UsageBoost) -> Option<NominatimPlace> {
     let id = tp.id.as_deref().unwrap_or("");
     let name = tp.descriptor.as_ref()?.name.as_deref().unwrap_or("");
     let centroid_xml = tp.centroid.as_ref()?;
@@ -70,7 +72,10 @@ fn convert_topo_place(config: &Config, tp: &TopographicPlaceXml) -> Option<Nomin
             object_id: 0,
             categories: indexed_cats,
             rank_address: config.poi.rank_address,
-            importance: RawNumber::from_f64(config.poi.importance),
+            // POI is the only source that provides importance directly (config.poi.importance
+            // is already in the 0-1 output range), so the boost is applied here rather than
+            // through ImportanceCalculator like other sources, with a hard cap at 1.0.
+            importance: RawNumber::from_f64((config.poi.importance * usage.factor(id)).min(1.0)),
             parent_place_id: None,
             name: Some(Name { name: Some(name.to_string()), name_en: None, alt_name: None }),
             address: Address::default(),
@@ -99,7 +104,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("poi-test.xml");
         let output = std::env::temp_dir().join(format!("test_poi_{suffix}.ndjson"));
-        convert_all(&config, &input, &output, false).unwrap();
+        convert_all(&config, &input, &output, false, &UsageBoost::empty()).unwrap();
         let lines: Vec<String> = std::fs::read_to_string(&output).unwrap()
             .lines().map(String::from).collect();
         let _ = std::fs::remove_file(&output);

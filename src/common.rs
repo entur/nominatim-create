@@ -8,4 +8,5 @@ pub mod geo;
 pub mod importance;
 pub mod text;
 pub mod translator;
+pub mod usage;
 pub mod util;

@@ -56,7 +56,7 @@ pub(crate) struct OsmEntityConverter<'a> {
     pub(crate) admin_boundary_index: &'a mut AdministrativeBoundaryIndex,
     pub(crate) street_index: &'a StreetIndex,
     pub(crate) popularity_calculator: &'a OsmPopularityCalculator,
-    pub(crate) importance_calc: ImportanceCalculator,
+    pub(crate) importance_calc: ImportanceCalculator<'a>,
     pub(crate) config: &'a Config,
 }
 
@@ -232,7 +232,7 @@ impl<'a> OsmEntityConverter<'a> {
         );
 
         let rank_address = self.determine_rank_address(tags);
-        let importance = self.calculate_importance(tags);
+        let importance = self.calculate_importance(tags, &osm_id);
 
         let content = PlaceContent {
             place_id: as_place_id(&osm_id),
@@ -277,9 +277,9 @@ impl<'a> OsmEntityConverter<'a> {
         }
     }
 
-    fn calculate_importance(&self, tags: &BTreeMap<&str, &str>) -> RawNumber {
+    fn calculate_importance(&self, tags: &BTreeMap<&str, &str>, id: &str) -> RawNumber {
         let popularity = self.popularity_calculator.calculate_popularity(tags);
-        RawNumber::from_f64_6dp(self.importance_calc.calculate_importance(popularity))
+        RawNumber::from_f64_6dp(self.importance_calc.calculate_importance_for(id, popularity))
     }
 }
 
@@ -444,10 +444,14 @@ fn as_category(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::usage::UsageBoost;
     use super::super::admin::ADMIN_LEVEL_COUNTY;
     use super::super::admin::ADMIN_LEVEL_MUNICIPALITY;
     use super::super::geometry::BoundingBox;
     use crate::source::test_helpers::test_config_with_osm_filters;
+
+    static EMPTY_USAGE: std::sync::LazyLock<UsageBoost> =
+        std::sync::LazyLock::new(UsageBoost::empty);
 
     fn make_converter<'a>(
         config: &'a Config,
@@ -463,7 +467,7 @@ mod tests {
             admin_boundary_index: admin_index,
             street_index,
             popularity_calculator: pop_calc,
-            importance_calc: ImportanceCalculator::new(&config.importance),
+            importance_calc: ImportanceCalculator::new(&config.importance, &EMPTY_USAGE),
             config,
         }
     }

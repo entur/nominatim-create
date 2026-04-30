@@ -4,6 +4,7 @@ use crate::common::extra::Extra;
 use crate::common::geo;
 use crate::common::importance::ImportanceCalculator;
 use crate::common::text::join_osm_values;
+use crate::common::usage::UsageBoost;
 use crate::common::util::titleize;
 use crate::config::Config;
 use crate::target::json_writer::JsonWriter;
@@ -27,8 +28,9 @@ pub fn convert_all(
     output: &Path,
     is_appending: bool,
     stedsnavn_gml: Option<&Path>,
+    usage: &UsageBoost,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let importance_calc = ImportanceCalculator::new(&config.importance);
+    let importance_calc = ImportanceCalculator::new(&config.importance, usage);
     let kommune_mapping = if let Some(gml_path) = stedsnavn_gml {
         build_kommune_mapping(gml_path)?
     } else {
@@ -103,7 +105,9 @@ fn convert_address(
     let fylkesnavn = addr.kommunenummer.as_ref()
         .and_then(|k| kommune_mapping.get(k).map(|i| titleize(&i.fylkesnavn)));
 
-    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.matrikkel.address_popularity));
+    let importance = RawNumber::from_f64_6dp(
+        importance_calc.calculate_importance_for(&id, config.matrikkel.address_popularity)
+    );
 
     NominatimPlace {
         type_: "Place".to_string(),
@@ -177,7 +181,9 @@ fn convert_street(
     let fylkesnavn = addr.kommunenummer.as_ref()
         .and_then(|k| kommune_mapping.get(k).map(|i| titleize(&i.fylkesnavn)));
 
-    let importance = RawNumber::from_f64_6dp(importance_calc.calculate_importance(config.matrikkel.street_popularity));
+    let importance = RawNumber::from_f64_6dp(
+        importance_calc.calculate_importance_for(&id, config.matrikkel.street_popularity)
+    );
 
     NominatimPlace {
         type_: "Place".to_string(),
@@ -231,7 +237,7 @@ mod tests {
         let config = test_config();
         let input = test_data_path("Basisdata_3420_Elverum_25833_MatrikkelenAdresse.csv");
         let output = std::env::temp_dir().join(format!("test_matrikkel_{suffix}.ndjson"));
-        convert_all(&config, &input, &output, false, stedsnavn_gml).unwrap();
+        convert_all(&config, &input, &output, false, stedsnavn_gml, &UsageBoost::empty()).unwrap();
         let lines: Vec<String> = std::fs::read_to_string(&output).unwrap()
             .lines().map(String::from).collect();
         let _ = std::fs::remove_file(&output);

@@ -74,6 +74,7 @@ export LANTMATERIET_PASS=your_password
 | `-a` | Append to existing output |
 | `-d` | Cache directory for downloads (see below); also via `NOMINATIM_CACHE_DIR` |
 | `--refresh-cache` | Ignore cache hits and re-download |
+| `-u` | Local `id;name;usage` CSV that boosts popular entities (see below) |
 
 ### Caching downloads
 
@@ -92,6 +93,39 @@ re-download. Or just `rm` the cache directory.
 
 The cache directory is created with default umask permissions; use a
 user-owned location, not a shared one.
+
+### Boosting popular entities (`-u`)
+
+`-u <FILE>` (or `--usage`) points at a semicolon-separated CSV that nudges
+popular entities upward in the importance ranking. The file is shared
+across every subcommand:
+
+```
+id;name;usage
+NSR:StopPlace:59872;Oslo S;139608
+NSR:StopPlace:58366;Jernbanetorget;12304
+...
+```
+
+- First field is the entity ID, last field is the usage count, anything in
+  between is treated as a human-readable label and ignored. `id;usage` works
+  too.
+- Header row optional. Blank lines and `#` comments skipped.
+- IDs use each source's native format (`NSR:StopPlace:N`,
+  `KVE:PostalAddress:N`, `OSM:PointOfInterest:N`, etc.). Missing IDs and IDs
+  at or below `usageFloor` get factor 1.0 - no penalty.
+
+The boost is `1 + alpha * log10(usage / usageFloor)`, applied as a
+multiplicative factor on raw popularity *before* the log10 importance
+normalization. Tune via the `usage` block in `converter.json`:
+
+```json
+"usage": { "alpha": 0.5, "usageFloor": 100 }
+```
+
+Defaults: `alpha=0.5`, `usageFloor=100`. With those, a stop with 10000x the
+floor (~1M boardings) gets a ~3x popularity nudge - meaningful but bounded;
+airports keep dominating the top by structural ranking.
 
 ## Output format
 

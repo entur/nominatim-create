@@ -27,8 +27,9 @@ pub fn convert(
     input: &Path,
     output: &Path,
     is_appending: bool,
+    usage: &crate::common::usage::UsageBoost,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let converter = OsmConverter::new(config.clone());
-    converter.convert(input, output, is_appending)
+    converter.convert(input, output, is_appending, usage)
 }
 

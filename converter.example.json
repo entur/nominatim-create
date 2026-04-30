@@ -87,7 +87,7 @@
     }
   },
   "groupOfStopPlaces": {
-    "gosBoostFactor": 10.0,
+    "gosBoostFactor": 3.0,
     "rankAddress": 30
   },
   "importance": {

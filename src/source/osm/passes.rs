@@ -52,6 +52,7 @@ impl OsmConverter {
         input: &Path,
         output: &Path,
         is_appending: bool,
+        usage: &crate::common::usage::UsageBoost,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(input.exists(), "Input file does not exist: {:?}", input);
 
@@ -93,6 +94,7 @@ impl OsmConverter {
             &mut admin_boundary_index,
             &street_index,
             &popularity_calculator,
+            usage,
         )?;
 
         eprintln!("Finished processing {} entities", results.len());
@@ -250,6 +252,7 @@ impl OsmConverter {
         admin_boundary_index: &mut AdministrativeBoundaryIndex,
         street_index: &StreetIndex,
         popularity_calculator: &OsmPopularityCalculator,
+        usage: &crate::common::usage::UsageBoost,
     ) -> Result<Vec<NominatimPlace>, Box<dyn std::error::Error>> {
         eprintln!("Pass 4/4: Processing POI entities and writing output...");
 
@@ -264,7 +267,7 @@ impl OsmConverter {
 
         pass4::compute_way_centroids(&way_data, nodes_coords, way_centroids);
 
-        let importance_calc = ImportanceCalculator::new(&self.config.importance);
+        let importance_calc = ImportanceCalculator::new(&self.config.importance, usage);
         let mut converter = OsmEntityConverter {
             nodes_coords,
             way_centroids,

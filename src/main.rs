@@ -12,24 +12,24 @@ mod target;
 use clap::{Parser, Subcommand};
 use common::input::{CACHE_DIR_ENV, CacheOptions, ResolvedInput, is_cached, resolve_input};
 use common::norwegian_counties;
+use common::usage::UsageBoost;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Parser)]
 #[command(name = "nominatim-converter", about = "Convert geographic data to Nominatim NDJSON")]
 struct Cli {
-    /// Cache downloaded source files under this directory and reuse them on
-    /// subsequent runs. Works with every subcommand that fetches a URL.
-    /// Reads from `NOMINATIM_CACHE_DIR` if the flag is not given.
+    /// Cache downloaded source files in DIR (reuses them on re-runs).
     #[arg(short = 'd', long, value_name = "DIR", global = true, env = CACHE_DIR_ENV)]
     cache_dir: Option<PathBuf>,
 
-    /// Ignore existing cache entries and re-download. Useful for rolling URLs
-    /// like `Current_latest.zip` or `norway-latest.osm.pbf` that re-publish
-    /// under the same name; without this, a warm cache will serve stale data.
-    /// Requires `--cache-dir` (or `NOMINATIM_CACHE_DIR`) to be set.
+    /// Ignore cache entries and re-download (requires --cache-dir).
     #[arg(long, global = true, requires = "cache_dir")]
     refresh_cache: bool,
+
+    /// Local `id;name;usage` CSV that boosts popular entities.
+    #[arg(short = 'u', long = "usage", value_name = "FILE", global = true)]
+    usage_csv: Option<PathBuf>,
 
     #[command(subcommand)]
     action: Action,
@@ -173,12 +173,13 @@ fn main() {
     // Load .env file for credentials (Lantmäteriet etc.) -- once, before any subcommand runs.
     dotenvy::dotenv().ok();
 
-    let Cli { cache_dir, refresh_cache, action } = Cli::parse();
+    let Cli { cache_dir, refresh_cache, usage_csv, action } = Cli::parse();
     let cache = CacheOptions::new(cache_dir.as_deref(), refresh_cache);
+    let usage_csv = usage_csv.as_deref();
 
     let result = match action {
-        Action::Stopplace(args) => run_conversion("StopPlace", args, Some("*.xml"), &cache, |cfg, input, output, append| {
-            source::stopplace::convert(cfg, input, output, append)
+        Action::Stopplace(args) => run_conversion("StopPlace", args, Some("*.xml"), &cache, usage_csv, |cfg, input, output, append, usage| {
+            source::stopplace::convert(cfg, input, output, append, usage)
         }),
         Action::Matrikkel(args) => {
             if args.list {
@@ -229,13 +230,13 @@ fn main() {
             };
 
             let gml_path = gml_resolved.as_ref().map(ResolvedInput::path);
-            run_conversion("Matrikkel", convert_args, Some("*.csv"), &cache, |cfg, input, output, append| {
-                source::matrikkel::convert(cfg, input, output, append, gml_path)
+            run_conversion("Matrikkel", convert_args, Some("*.csv"), &cache, usage_csv, |cfg, input, output, append, usage| {
+                source::matrikkel::convert(cfg, input, output, append, gml_path, usage)
             })
             // gml_resolved drops here; if temp, its file is cleaned up automatically.
         }
-        Action::Osm(args) => run_conversion("OSM PBF", args, None, &cache, |cfg, input, output, append| {
-            source::osm::convert(cfg, input, output, append)
+        Action::Osm(args) => run_conversion("OSM PBF", args, None, &cache, usage_csv, |cfg, input, output, append, usage| {
+            source::osm::convert(cfg, input, output, append, usage)
         }),
         Action::Stedsnavn(args) => {
             if args.list {
@@ -261,12 +262,12 @@ fn main() {
                 append: args.append,
                 force: args.force,
             };
-            run_conversion("Stedsnavn", convert_args, Some("*.gml"), &cache, |cfg, input, output, append| {
-                source::stedsnavn::convert(cfg, input, output, append)
+            run_conversion("Stedsnavn", convert_args, Some("*.gml"), &cache, usage_csv, |cfg, input, output, append, usage| {
+                source::stedsnavn::convert(cfg, input, output, append, usage)
             })
         }
-        Action::Poi(args) => run_conversion("POI", args, None, &cache, |cfg, input, output, append| {
-            source::poi::convert(cfg, input, output, append)
+        Action::Poi(args) => run_conversion("POI", args, None, &cache, usage_csv, |cfg, input, output, append, usage| {
+            source::poi::convert(cfg, input, output, append, usage)
         }),
         Action::Belagenhet(args) => {
             if args.list {
@@ -284,7 +285,7 @@ fn main() {
                     preflight_check_credentials("LANTMATERIET_USER");
                     preflight_check_credentials("LANTMATERIET_PASS");
                 }
-                run_belagenhet_download(&args, &codes, &cache)
+                run_belagenhet_download(&args, &codes, &cache, usage_csv)
             } else {
                 let input = args.input.as_ref().unwrap_or_else(|| {
                     eprintln!("Error: belagenhet requires either -i <file.gpkg> or -m <municipality_code>");
@@ -297,8 +298,8 @@ fn main() {
                     append: args.append,
                     force: args.force,
                 };
-                run_conversion("Belägenhetsadress", convert_args, Some("*.gpkg"), &cache, |cfg, input, output, append| {
-                    source::belagenhet::convert(cfg, input, output, append)
+                run_conversion("Belägenhetsadress", convert_args, Some("*.gpkg"), &cache, usage_csv, |cfg, input, output, append, usage| {
+                    source::belagenhet::convert(cfg, input, output, append, usage)
                 })
             }
         }
@@ -367,12 +368,14 @@ fn run_conversion<F>(
     args: ConvertArgs,
     extract_glob: Option<&str>,
     cache: &CacheOptions,
+    usage_csv: Option<&Path>,
     convert_fn: F,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnOnce(&config::Config, &Path, &Path, bool) -> Result<(), Box<dyn std::error::Error>>,
+    F: FnOnce(&config::Config, &Path, &Path, bool, &UsageBoost) -> Result<(), Box<dyn std::error::Error>>,
 {
     let cfg = config::Config::load(args.config.as_deref())?;
+    let usage = UsageBoost::load(usage_csv, &cfg.usage)?;
 
     let output = &args.output;
     if output.exists() {
@@ -394,7 +397,7 @@ where
 
     eprintln!("Starting {name} conversion...");
     let start = Instant::now();
-    convert_fn(&cfg, input.path(), output, args.append)?;
+    convert_fn(&cfg, input.path(), output, args.append, &usage)?;
     // `input` drops here; temp files are removed automatically.
 
     let duration = start.elapsed().as_secs_f64();
@@ -408,8 +411,10 @@ fn run_belagenhet_download(
     args: &BelagenhetArgs,
     municipalities: &[String],
     cache: &CacheOptions,
+    usage_csv: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = config::Config::load(args.config.as_deref())?;
+    let usage = UsageBoost::load(usage_csv, &cfg.usage)?;
     let output = args.output.as_ref().expect("output required for download");
 
     if output.exists() {
@@ -433,7 +438,7 @@ fn run_belagenhet_download(
 
         let gpkg = source::belagenhet::download::download_municipality(kommun_id, cache)?;
         let appending = !is_first;
-        source::belagenhet::convert(&cfg, gpkg.path(), output, appending)?;
+        source::belagenhet::convert(&cfg, gpkg.path(), output, appending, &usage)?;
         // `gpkg` drops here; temp files cleaned up, cached files preserved.
         is_first = false;
     }

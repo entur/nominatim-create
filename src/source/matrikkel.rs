@@ -7,6 +7,7 @@ pub fn convert(
     output: &std::path::Path,
     is_appending: bool,
     stedsnavn_gml: Option<&std::path::Path>,
+    usage: &crate::common::usage::UsageBoost,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    convert::convert_all(config, input, output, is_appending, stedsnavn_gml)
+    convert::convert_all(config, input, output, is_appending, stedsnavn_gml, usage)
 }

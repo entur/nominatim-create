@@ -14,6 +14,25 @@ pub struct Config {
     pub importance: ImportanceConfig,
     #[serde(default)]
     pub belagenhet: BelagenhetConfig,
+    #[serde(default)]
+    pub usage: UsageConfig,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct UsageConfig {
+    #[serde(default = "default_usage_alpha")]
+    pub alpha: f64,
+    #[serde(rename = "usageFloor", default = "default_usage_floor")]
+    pub usage_floor: u64,
+}
+
+fn default_usage_alpha() -> f64 { 0.5 }
+fn default_usage_floor() -> u64 { 100 }
+
+impl Default for UsageConfig {
+    fn default() -> Self {
+        Self { alpha: default_usage_alpha(), usage_floor: default_usage_floor() }
+    }
 }
 
 #[derive(Deserialize, Clone)]

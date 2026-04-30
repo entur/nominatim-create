@@ -18,14 +18,36 @@ The release build uses LTO (`[profile.release] lto = true`).
 
 ## Key design decisions
 
-### Output must match the original converter exactly
+### Output must match the original converter exactly (unless `--usage` is in play)
 
-This is the most important constraint. Specifically:
+This is the most important constraint when running without `--usage`. Specifically:
 
 - **place_id values** use the `String.hashCode()` algorithm from the original converter (`src/target/nominatim_id.rs`). Do not replace with Rust's `DefaultHasher` — the hash values must match the original output.
 - **Floating-point formatting** uses exactly 6 decimal places for `importance`, `centroid`, and `bbox` fields (`src/target/nominatim_place.rs`). This is enforced via custom serde serializers using `serde_json::value::RawValue`.
 - **Country detection** uses `boundaries60x30.ser`, embedded via `include_bytes!` (`src/common/geo.rs`). This file originates from [JOSM's boundaries.osm](https://josm.openstreetmap.de/browser/josm/trunk/resources/data/boundaries.osm), manually edited for border accuracy and stored in [entur/geocoder-data](https://github.com/entur/geocoder-data), then converted to `.ser` using the [countryboundaries](https://github.com/westnordost/countryboundaries) generator. Do not switch to the Rust crate's built-in data — it produces different results for border cases.
 - **Country code mapping** covers all ISO 3166-1 countries (`src/common/country.rs`). Do not reduce to a subset.
+
+### Optional usage-driven popularity boosts (`--usage`)
+
+The global `--usage <FILE>` CLI flag points at a semicolon-separated CSV (`id;name;usage`, or just `id;usage` - the middle column is purely human-friendly and ignored) that nudges popular entities upward in the ranking (`src/common/usage.rs`). The boost is `1 + alpha * log10(usage / usageFloor)` (defaults: alpha=0.5, floor=100), applied as a multiplicative factor on each source's raw popularity *before* `ImportanceCalculator` runs. Missing IDs and IDs at or below the floor receive factor 1.0.
+
+The CSV is shared across every subcommand. Each source converter looks up by its own ID format (`NSR:StopPlace:N`, `KVE:PostalAddress:N`, `OSM:PointOfInterest:N`, etc.) so a single file can carry signals for multiple sources.
+
+The canonical CSV is generated from PostHog by the `posthog-popular-stops` job in [`geocoder/.github/workflows/cache-data-sources.yml`](../geocoder/.github/workflows/cache-data-sources.yml) and uploaded to:
+
+- `gs://ent-geocoder-prd/data-sources/popular-stops-fra.csv` (boardings - use this for general search ranking)
+- `gs://ent-geocoder-prd/data-sources/popular-stops-til.csv` (alightings)
+
+`--usage` only accepts local paths, not GCS URIs, so download first:
+
+```bash
+gcloud storage cp gs://ent-geocoder-prd/data-sources/popular-stops-fra.csv .
+nominatim-converter --usage popular-stops-fra.csv stopplace -i stops.xml -o stops.ndjson -c converter.json
+```
+
+When `--usage` is set, output **deliberately diverges** from the original Java converter for any boosted entity. Do not use `compare-ndjson.py` against the Java baseline as a regression check in that mode - importance values will differ. Without `--usage`, output remains bit-identical and the comparison still applies.
+
+GoSP popularity grows multiplicatively from member popularities, so member-level boosts compound. The `gosBoostFactor` in `converter.example.json` is now `3.0` (down from `10.0`) to leave headroom for usage-driven differentiation; retune downward further if real-world output shows GoSPs over-dominating.
 
 ### Coordinate conversions have inherent precision differences
 
